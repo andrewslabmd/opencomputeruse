@@ -95,7 +95,8 @@ test('MCP adapter survives a host restart: the next tool call succeeds', async t
   assert.equal((await mcp.call('computer_use_permissions', {})).content[0].text, 'use_permissions');
   assert.equal(JSON.parse((await mcp.call('computer_use_status', {})).content[0].text).pid, process.pid);
   assert.deepEqual(broker.calls, ['use_permissions', 'use_observe']); assert.deepEqual(replacement.calls, ['use_permissions']);
-  assert.deepEqual(second.status().clients.map(c => c.name), ['MCP agent']);
+  // The connection keeps the agent's own name (its MCP clientInfo) across the restart.
+  assert.deepEqual(second.status().clients.map(c => c.name), ['opencomputeruse-host']);
 });
 
 test('startup stops a previous host whose app has exited and takes over', async t => {

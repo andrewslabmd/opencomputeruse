@@ -2,6 +2,14 @@
 
 Dated history of what changed and how it was verified. Earlier development took place in a private repository; this public repository starts from its state on 2026-10-16, summarized below. New entries record actual work, verification and remaining uncertainty, and contain no personal application data.
 
+## 2026-10-17 — App icon and agent cursor overlay
+
+- Icon: an Icon Composer document (`assets/icon/OpenComputerUse.icon`) modeled on Airpoint's: dark tile, two blue ripple layers and Phosphor's `navigation-arrow` pointer (MIT, credited in `THIRD_PARTY_NOTICES.md`) clicking at their center. `assets/icon/layers.swift` regenerates the layers; `pnpm build:icon` (Xcode 26 or later) compiles the committed `Assets.car` and `.icns`, which `pnpm build` copies into the app and the helper. Finder shows the icon on both.
+- Overlay: engines report each spatial action's window and point to the host; the host publishes the latest cursor per agent (`cursors.json`) and withdraws it on release, cancel, Stop and disconnect; the menu-bar app draws one click-through panel per agent directly above the target window (pointer in the agent's color, name tag, window highlight, click ripple). MCP connections are now named after the agent's MCP client. A **Show agent cursors** switch turns it off.
+- Feasibility first: an AppKit panel ordered with `order(.above, relativeTo:)` above another app's window stayed directly above it; when OCU's activation raised the target, one 50 ms re-stack restored the order (280 checks, out of place twice). Pointer input and app-scoped Accessibility hit-testing reached the target through the panel.
+- Evidence: `pnpm check` (85 JavaScript, 154 Swift); new `scripts/test-native-overlay.mjs` passed 6 cases (cursor published for the target window and the panel directly above it after a double-click, a row selection and typing; input reached the target; release removed cursor and panel; neither the fixture nor OpenComputerUse came to the front). With the overlay running, `test-native-clicks.mjs` passed 12/12 and `test-native-agents.mjs` all cases. Window captures of the overlay composited on the target show the pointer at each action point (`work/native-overlay-1792261893729`).
+- Remaining uncertainty: not yet exercised live with the target on another Space, minimized, in full screen or under Stage Manager; the window highlight uses a fixed 14-point corner radius, which may not match every window style.
+
 ## 2026-10-17 — Repository made public
 
 - Outcome: `andrewslabmd/opencomputeruse` is public with only `main` (no tags). Enabled and verified: private vulnerability reporting, secret scanning with push protection, Dependabot alerts and security updates, and protection of `main` against force pushes and deletion. Wiki and Projects are off; topics are set. GitHub detects Apache-2.0 and the community profile is complete.

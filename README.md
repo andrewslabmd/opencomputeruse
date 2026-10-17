@@ -27,6 +27,9 @@ name and app identifiers may still change.
   only changes if you change it.
 - **Runs several agents at once**, one per app. An agent asking for an app
   another agent is using gets `busy`.
+- **Shows where agents act:** each agent gets its own colored pointer, name
+  and window highlight, drawn only above the window it works in, so it never
+  covers other apps. Turn it off with **Show agent cursors** in the menu bar.
 - **Stop** in the menu bar stops every agent; nothing resumes until you choose
   Resume.
 
@@ -111,13 +114,13 @@ privately as described in [SECURITY.md](SECURITY.md).
 - Context menus do not reliably close with AXCancel; Escape does.
 - Agents' native requests are processed one at a time, so a long observation
   by one agent briefly delays others.
-- There is no agent cursor overlay yet.
 
 ## Development
 
 ```sh
 pnpm check    # headless contract and Swift tests; safe to run anywhere
 pnpm build    # app bundle in dist/
+pnpm build:icon  # regenerate the compiled icon from assets/icon (needs Xcode 26 or later)
 ```
 
 The native acceptance scripts are opt-in: they launch owned fixture apps in the
@@ -127,6 +130,7 @@ acceptable, with the current build installed and running:
 ```sh
 node scripts/test-native-clicks.mjs --interactive       # clicks, actions, list_apps
 node scripts/test-native-agents.mjs --interactive       # two concurrent agents
+node scripts/test-native-overlay.mjs --interactive      # agent cursor overlay
 node scripts/test-native-selection.mjs --interactive    # selection in Finder and AppKit
 node scripts/test-native-observation.mjs --interactive  # large trees, lifecycle, Stop
 node scripts/test-native-interaction.mjs --interactive  # scroll, reveal, save panels

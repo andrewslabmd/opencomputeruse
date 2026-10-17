@@ -9,6 +9,10 @@ final class HostModel: ObservableObject {
     @Published var detail = ""
     @Published var paused = false
     @Published var clients: [[String: String]] = []
+    @Published var showCursors = UserDefaults.standard.object(forKey: "showAgentCursors") as? Bool ?? true {
+        didSet { UserDefaults.standard.set(showCursors, forKey: "showAgentCursors"); overlay.enabled = showCursors }
+    }
+    lazy var overlay = CursorOverlay(runtime: runtime)
     private var helper: Process?
     private var host: Process?
     private var lock: Int32 = -1
@@ -36,6 +40,7 @@ final class HostModel: ObservableObject {
             try native.run(); helper = native
             hostStarts = []; try launchHost()
             timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in Task { @MainActor in self?.refresh() } }
+            overlay.enabled = showCursors; overlay.start()
             status = "Ready"
         } catch { status = "Unavailable"; detail = error.localizedDescription; helper?.terminate() }
     }
@@ -67,7 +72,7 @@ final class HostModel: ObservableObject {
     }
     func refresh() {
         guard helper?.isRunning == true else { status = "Unavailable"; return }
-        guard host?.isRunning == true else { restartHost(); return }
+        guard host?.isRunning == true else { overlay.clear(); restartHost(); return }
         guard let data = try? Data(contentsOf: runtime.appendingPathComponent("status.json")), let state = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return }
         paused = state["paused"] as? Bool ?? false
         status = paused ? "Stopped" : ((state["busy"] as? Bool == true) ? "Working" : "Ready")
@@ -123,7 +128,7 @@ final class HostModel: ObservableObject {
         catch { detail = error.localizedDescription }
     }
     func repair() {
-        timer?.invalidate(); host?.terminate(); helper?.terminate()
+        timer?.invalidate(); overlay.clear(); host?.terminate(); helper?.terminate()
         let children = [host, helper].compactMap { $0 }
         Task {
             await Task.detached {
@@ -136,7 +141,7 @@ final class HostModel: ObservableObject {
         }
     }
     func quit() {
-        timer?.invalidate(); host?.terminate(); helper?.terminate()
+        timer?.invalidate(); overlay.clear(); host?.terminate(); helper?.terminate()
         let children = [host, helper].compactMap { $0 }
         Task {
             await Task.detached {
@@ -158,6 +163,7 @@ struct ComputerUseApp: App {
                 Text("OpenComputerUse · Development").font(.headline)
                 Text(model.status)
                 HStack { Button("Stop") { model.command(["stop"]) }; Button("Resume") { model.command(["resume"]) } }
+                Toggle("Show agent cursors", isOn: $model.showCursors)
                 Divider()
                 Button("Allow Accessibility…") { model.permission("accessibility") }
                 Button("Allow Screen Recording…") { model.permission("screenRecording") }

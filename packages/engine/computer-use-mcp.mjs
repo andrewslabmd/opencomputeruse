@@ -279,6 +279,9 @@ async function runAirpointAction(action, index) {
   if (route.noEffect) return { ...audit, requested: point, status: "no_effect", behavior: "no_effect" };
   const destination = action.kind === "drag" ? globalPoint(snapshot, action.to) : undefined;
   if (action.kind === "drag" && !destination) return { ...audit, status: "failed", code: "invalid_drag", error: "drag requires a finite destination." };
+  // Where the agent is acting, for the on-screen agent cursor (global points).
+  send({ jsonrpc: "2.0", method: "engine/cursor", params: { pid: snapshot.pid, window_id: route.windowID,
+    x: route.global.x, y: route.global.y, kind: action.kind, ...(destination ? { to_x: destination.x, to_y: destination.y } : {}) } });
   const response = await requestComputerUseHelper(helperCommandDirectory, "accessibilityInteraction", {
     accessibilityInteraction: {
       point: { processID: snapshot.pid, capturedAt: snapshot.model.captured_at,

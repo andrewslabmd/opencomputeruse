@@ -8,7 +8,8 @@
   "scripts": {
     "test": "node --test tests/contract/*.test.mjs",
     "build": "node scripts/build.mjs",
-    "check": "node scripts/check.mjs"
+    "check": "node scripts/check.mjs",
+    "build:icon": "node scripts/build-icon.mjs"
   },
   "devDependencies": {
     "bun": "1.3.10",

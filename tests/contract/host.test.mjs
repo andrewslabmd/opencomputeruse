@@ -185,3 +185,22 @@ test('an action from an agent without its own observation is refused even while 
   await observeApp(a, 'Fixture');
   await assert.rejects(act(b), { code: 'observation_required' });
 });
+
+test('each agent cursor is published for the window it acts in and cleared when its workflow ends', async t => {
+  const { host, brokers, a, b } = await agents(t);
+  const read = async () => JSON.parse(await readFile(join(host.directory, 'cursors.json'), 'utf8'));
+  await observeApp(a, 'Fixture'); await observeApp(b, 'Other');
+  const [wa, wb] = [...host.workflows.values()];
+  wa.broker.onCursor({ pid: 101, window_id: 7, x: 10, y: 20, kind: 'click' });
+  wb.broker.onCursor({ pid: 202, window_id: 9, x: 30, y: 40, kind: 'type' });
+  wb.broker.onCursor({ pid: 202, window_id: 9, x: 'bad', y: 40 }); // ignored
+  await host.cursorWriting;
+  let cursors = await read();
+  assert.deepEqual(cursors.map(c => [c.name, c.slot, c.pid, c.window_id, c.x, c.y, c.kind]), [['a', 0, 101, 7, 10, 20, 'click'], ['b', 1, 202, 9, 30, 40, 'type']]);
+  // A cursor belongs to the app its workflow holds: moving to another app hides it.
+  wa.broker.onCursor({ pid: 999, window_id: 3, x: 1, y: 1, kind: 'click' }); await host.cursorWriting;
+  assert.deepEqual((await read()).map(c => c.name), ['b']);
+  await b.request('release'); await host.cursorWriting;
+  assert.deepEqual(await read(), []);
+  assert.ok(brokers.length >= 3);
+});
