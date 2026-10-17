@@ -1,6 +1,6 @@
 # Architecture
 
-The native menu-bar process holds an OS file lock and launches one helper and one host service. Every observation, capture and action is OpenComputerUse's own code in that helper and the engines; no third-party automation backend is bundled or launched. MCP/CLI connect to the host over a private Unix socket; the host supervises one lazy private broker (engine) per client workflow, plus a read-only broker that never starts an engine.
+The native menu-bar process holds an OS file lock and launches one helper and one host service. Every observation, capture and action is Open Computer Use's own code in that helper and the engines; no third-party automation backend is bundled or launched. MCP/CLI connect to the host over a private Unix socket; the host supervises one lazy private broker (engine) per client workflow, plus a read-only broker that never starts an engine.
 
 The host authenticates local clients with an installation token in its owner-only runtime directory. This is a same-user local trust boundary, not isolation from malicious processes already running as that user. Client names are untrusted labels. Disconnect (revoke) closes a connection and tells that client not to reconnect by itself; the agent's next connection is accepted, since persistent per-client credential revocation remains future work.
 

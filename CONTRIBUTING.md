@@ -1,6 +1,6 @@
 # Contributing
 
-Thanks for your interest in OpenComputerUse.
+Thanks for your interest in Open Computer Use.
 
 ## Before you start
 

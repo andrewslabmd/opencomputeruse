@@ -2,6 +2,12 @@
 
 Dated history of what changed and how it was verified. Earlier development took place in a private repository; this public repository starts from its state on 2026-10-16, summarized below. New entries record actual work, verification and remaining uncertainty, and contain no personal application data.
 
+## 2026-10-17 — Prose name
+
+- Outcome: prose now writes the product name as Open Computer Use (README title and body, NOTICE, CONTRIBUTING, SECURITY, ARCHITECTURE); the convention is recorded in `docs/PRODUCT.md`. Code, paths, bundle and app names (`OpenComputerUse Dev.app`, *OpenComputerUse Helper*), the menu-bar title, error messages and identifiers are unchanged, as are earlier Journal entries.
+- Evidence: `pnpm check` after the change.
+- Remaining uncertainty: the final public name is still undecided.
+
 ## 2026-10-17 — App icon and agent cursor overlay
 
 - Icon: an Icon Composer document (`assets/icon/OpenComputerUse.icon`) modeled on Airpoint's: dark tile, two blue ripple layers and Phosphor's `navigation-arrow` pointer (MIT, credited in `THIRD_PARTY_NOTICES.md`) clicking at their center. `assets/icon/layers.swift` regenerates the layers; `pnpm build:icon` (Xcode 26 or later) compiles the committed `Assets.car` and `.icns`, which `pnpm build` copies into the app and the helper. Finder shows the icon on both.

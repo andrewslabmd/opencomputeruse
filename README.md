@@ -1,6 +1,6 @@
-# OpenComputerUse
+# Open Computer Use
 
-Background computer use for AI agents on macOS. OpenComputerUse is a small
+Background computer use for AI agents on macOS. Open Computer Use is a small
 menu-bar app and local MCP server that lets agents such as Claude Code observe
 and operate native Mac apps while you keep working: it does not take your
 pointer, your keyboard or the foreground app.
@@ -85,14 +85,14 @@ ocu resume
 
 ## Safety and responsible use
 
-OpenComputerUse lets software operate your apps. Use it deliberately.
+Open Computer Use lets software operate your apps. Use it deliberately.
 
 - **What it can do:** read the content of any app an agent observes, and click,
   type and run commands in it, with your Accessibility and Screen Recording
   permissions. Treat anything an agent can do through it as something you did.
 - **Where your data goes:** observations and screenshots go to the agent that
   asked for them, and from there usually to that agent's model provider.
-  OpenComputerUse itself has no analytics and sends nothing to the network.
+  Open Computer Use itself has no analytics and sends nothing to the network.
 - **Trust boundary:** the local host accepts clients that can read its token in
   your user account's private runtime directory. It does not protect against
   other software already running as your user.

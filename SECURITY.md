@@ -2,7 +2,7 @@
 
 ## Supported versions
 
-OpenComputerUse is pre-release software. Only the latest commit on `main` is
+Open Computer Use is pre-release software. Only the latest commit on `main` is
 supported.
 
 ## Reporting a vulnerability
