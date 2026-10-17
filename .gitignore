@@ -5,3 +5,5 @@ work/
 .DS_Store
 *.log
 .env*
+# Private working journal, kept locally only
+JOURNAL.md

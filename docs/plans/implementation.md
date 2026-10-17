@@ -64,7 +64,7 @@ scripts/                    build, sign, notarize, package, release
 docs/plans/                 this plan once a repository exists
 ```
 
-Use the workspace product documentation profile: thin `AGENTS.md`, README, PRODUCT, DESIGN, ARCHITECTURE, POLICIES, MARKETING, JOURNAL, and CHANGELOG. Add focused Computer Use and release contracts as needed. JOURNAL records actual work and remaining uncertainty; CHANGELOG records verified-live releases only.
+Use the workspace product documentation profile: thin `AGENTS.md`, README, PRODUCT, DESIGN, ARCHITECTURE, POLICIES, MARKETING and CHANGELOG; the working journal stays local and untracked. Add focused Computer Use and release contracts as needed. The local working journal records actual work and remaining uncertainty; CHANGELOG records verified-live releases only.
 
 ## Phase 0 — freeze extraction contract
 
@@ -148,7 +148,7 @@ Before external beta: final name and stable bundle IDs, minimum macOS version, t
 
 Before commercial release: open-source boundaries/license, price and update entitlement, support terms, update delivery, and purchase infrastructure.
 
-Deferred: Windows/Linux release, remote access, an embedded browser engine, a chat UI, hosted inference, and replacing patched Peekaboo (done 2026-10-16: Peekaboo removed; see JOURNAL.md). These require separate scope and evidence.
+Deferred: Windows/Linux release, remote access, an embedded browser engine, a chat UI, hosted inference, and replacing patched Peekaboo (done 2026-10-16: Peekaboo removed). These require separate scope and evidence.
 
 Implementation order: Phase 0 → Phase 1 → Phase 2 → Phase 3 → Phase 4 → Phase 5. Run the first bounded live-agent workflow as soon as Phase 1 supports it, then repeat after the shared-host changes. Estimate remaining effort after standalone extraction reveals the native lifecycle and packaging work; do not treat a speculative calendar estimate as a delivery commitment.
 
@@ -166,4 +166,4 @@ Implementation order: Phase 0 → Phase 1 → Phase 2 → Phase 3 → Phase 4 �
 
 ## Implementation checkpoint — 2026-09-09
 
-The first standalone native + Claude milestone is verified; see JOURNAL.md for evidence. Phase 1 has a working signed development bundle. Phase 2 has shared ownership, schema validation, abort handling, permission refresh and tested adapters, with persistent client credentials and TypeScript migration still open. Phase 3 has development UI, preview, permission/CLI/login controls and restart, pending visual/recovery acceptance. Phase 4 has Claude Code plus direct protocol/native fixtures; another coding-client integration and broader workflows remain open. Phase 5 is not complete. Do not interpret this checkpoint as complete public-product acceptance.
+The first standalone native + Claude milestone is verified; its evidence is in the maintainer's working journal. Phase 1 has a working signed development bundle. Phase 2 has shared ownership, schema validation, abort handling, permission refresh and tested adapters, with persistent client credentials and TypeScript migration still open. Phase 3 has development UI, preview, permission/CLI/login controls and restart, pending visual/recovery acceptance. Phase 4 has Claude Code plus direct protocol/native fixtures; another coding-client integration and broader workflows remain open. Phase 5 is not complete. Do not interpret this checkpoint as complete public-product acceptance.

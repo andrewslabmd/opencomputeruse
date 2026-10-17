@@ -154,7 +154,7 @@ Each script keeps its evidence under the ignored `work/` folder.
 ### Documentation
 
 [Product](docs/PRODUCT.md), [architecture](docs/ARCHITECTURE.md),
-[policies](docs/POLICIES.md), [design](DESIGN.md), [journal](JOURNAL.md) and
+[policies](docs/POLICIES.md), [design](DESIGN.md) and
 [Claude Code integration](integrations/claude-code/README.md).
 
 ## Contributing
