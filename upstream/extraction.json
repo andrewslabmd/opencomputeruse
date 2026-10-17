@@ -1,0 +1,94 @@
+{
+  "repository": "opencode-superapp",
+  "commit": "6e96cbf9ee3a5bc59a6dc7179962b562596f148a",
+  "files": [
+    {
+      "source": "apps/desktop/scripts/computer-use-airpoint.mjs",
+      "destination": "packages/engine/computer-use-airpoint.mjs",
+      "sha256": "0eb845ed3c78e1349de0ac48a4d765dad9f119012132d28d3e73795f467bee6e"
+    },
+    {
+      "source": "apps/desktop/scripts/computer-use-mcp.mjs",
+      "destination": "packages/engine/computer-use-mcp.mjs",
+      "sha256": "4e92271d026a35cb72251349164632b01a81305deff896bf310ec1f817d7ca35"
+    },
+    {
+      "source": "apps/desktop/scripts/computer-use-helper-client.mjs",
+      "destination": "packages/engine/computer-use-helper-client.mjs",
+      "sha256": "daf617c76b9601604cd3aebc58dd6909d0e231c44ba1b9825539b0cb5c254f61"
+    },
+    {
+      "source": "apps/desktop/scripts/computer-use-background-app.mjs",
+      "destination": "packages/engine/computer-use-background-app.mjs",
+      "sha256": "7af89db80e27d01b3faad14548f1f0710cb690ebc5322d5fe8c06c25e68e9c25"
+    },
+    {
+      "source": "apps/desktop/scripts/test-computer-use-airpoint-unit.mjs",
+      "destination": "tests/contract/airpoint.test.mjs",
+      "sha256": "13cfceec71e8cd132b29e5531772745bb50d2fd036918d5e01495a64c6c1827b"
+    },
+    {
+      "source": "apps/desktop/src-tauri/src/swift/ComputerUseHelper.swift",
+      "destination": "packages/native/ComputerUseHelper.swift",
+      "sha256": "4aaaf2fbcc5076e9f3b0181adde270566a279c64c6d5dcf930f1b29202184873"
+    },
+    {
+      "source": "apps/desktop/src-tauri/src/swift/ComputerUsePreview.swift",
+      "destination": "packages/native/ComputerUsePreview.swift",
+      "sha256": "2f09e2e59ce8d23704dd30c470282104ffca436e0a6b3502a629497964d1c90a",
+      "removed": "2026-10-16"
+    },
+    {
+      "source": "apps/desktop/scripts/fixtures/ComputerUseFixture.swift",
+      "destination": "tests/native-fixtures/ComputerUseFixture.swift",
+      "sha256": "ce6fc7fd2e91eb1d660f59f0dfcfb2a62fecaaab319975843a5194310985c33a"
+    },
+    {
+      "source": "prompts/computer-operator-airpoint.md",
+      "destination": "integrations/claude-code/operator.md",
+      "sha256": "d5d301e2361d95d04046377ac648abf500a46c5f1c8acd750d194d4af2a9ca62"
+    },
+    {
+      "source": "apps/desktop/patches/peekaboo-3.9.1-ax-hierarchy.patch",
+      "destination": "upstream/peekaboo/patches/peekaboo-3.9.1-ax-hierarchy.patch",
+      "sha256": "c5e8f9f66968a206f8824da7d25744e297aa84170eacb0430385b8f412a5fd8a",
+      "removed": "2026-10-16"
+    },
+    {
+      "source": "apps/desktop/patches/peekaboo-3.9.1-native-element-registry.patch",
+      "destination": "upstream/peekaboo/patches/peekaboo-3.9.1-native-element-registry.patch",
+      "sha256": "c66276a33b9d7e42268226ec50a18e4f982f3461af8d122b079c5f0bd0275498",
+      "removed": "2026-10-16"
+    },
+    {
+      "source": "apps/desktop/patches/peekaboo-3.9.1-reliable-background-input.patch",
+      "destination": "upstream/peekaboo/patches/peekaboo-3.9.1-reliable-background-input.patch",
+      "sha256": "eeda776ba1287c132825a2a8868a066534f9c01115b0662426260b9f8ebc7354",
+      "removed": "2026-10-16"
+    },
+    {
+      "source": "apps/desktop/patches/peekaboo-3.9.1-airpoint-spatial-actions.patch",
+      "destination": "upstream/peekaboo/patches/peekaboo-3.9.1-airpoint-spatial-actions.patch",
+      "sha256": "756352be2680aa739c187859dd7526889315e9ffff24f7efc176eebb2350a64f",
+      "removed": "2026-10-16"
+    },
+    {
+      "source": "apps/desktop/patches/peekaboo-3.9.1-spatial-primary-click.patch",
+      "destination": "upstream/peekaboo/patches/peekaboo-3.9.1-spatial-primary-click.patch",
+      "sha256": "0e41418d7e05e9720c1788a8be01f98adf447c23f46000209fadbe090b72249e",
+      "removed": "2026-10-16"
+    },
+    {
+      "source": "apps/desktop/scripts/build-patched-peekaboo.mjs",
+      "destination": "upstream/peekaboo/build.mjs",
+      "sha256": "bed8cf6ca62a7d65ad10bf59837c30c7477e34449931b1d22ad946308598a588",
+      "removed": "2026-10-16"
+    },
+    {
+      "source": "apps/desktop/src-tauri/resources/third-party/Peekaboo-LICENSE.txt",
+      "destination": "upstream/peekaboo/LICENSE.txt",
+      "sha256": "62316704df7426e5a79d2827ff8aca36e9abb3a73b8e68557030749ebefec667",
+      "removed": "2026-10-16"
+    }
+  ]
+}

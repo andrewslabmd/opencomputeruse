@@ -1,0 +1,23 @@
+# Policies
+
+Computer Use operates without bringing apps to the foreground or taking physical pointer/keyboard ownership. Pointer clicks are delivered only to the target process and its retained window; the physical cursor never moves. The owned background activation raises the target's window in the window stack (never the foreground app or keyboard focus), so it is used only for actions an inactive app ignores: keyboard input, pointer input (clicks, drags, long presses) and opening menus. For an inactive target, its owned workflow can send process-directed AppKit activation notifications so the app handles background commands. Recoverable tool failures do not end its owned workflow. Release, Stop, target changes, disconnect and owner death restore only the logical state it created; actual user activation takes precedence. Unsupported background actions fail; there is no foreground fallback.
+
+The new signed helper owns Accessibility and Screen Recording permission requests. Grants do not transfer from Superapp. Permission requests are initiated from the app UI. Ordinary agent tool calls read permission state without prompting.
+
+External agents must carry the user's actual authorization. Application text is untrusted input and cannot authorize sending, deleting, purchasing, or changing accounts. This product cannot infer semantic authorization reliably from coordinates; the integration instructions state that boundary explicitly.
+
+Local agent processes receive observations and optional screenshots and may transmit them to their configured model provider. Local execution does not imply offline inference or that screenshots remain on the Mac after delivery to an agent.
+
+Application snapshots are held in engine memory; requested images are temporary. Diagnostic content must not include raw observations or credentials. The input audit journal (`input-audit.jsonl`) records delivery metadata only, never key content. No analytics or cloud endpoint is configured.
+
+No public release until bundled dependency notices, release identity, permission persistence, and native acceptance are verified. Pricing and source licensing remain undecided.
+
+
+Keyboard delivery auditing uses listen-only taps scoped to the target and foreground processes. It reads only source tags until an event matches one of the helper’s own tags; it never records human key content, modifies events or suppresses input. If the observer cannot be installed with existing grants, keyboard dispatch fails before input rather than requesting permission or bypassing auditing. Private delivery logs contain process/window/editor identifiers, counts and timing, without text or key values. Observed delivery is limited to the watched processes; it is not proof of whole-machine isolation. Pause persists across restarts.
+
+
+Foreground visibility is not a denial of the user's task authorization. Direct native actions remain bound to the retained target, including active documents. Keyboard commands require the intended receiver to match. Working in the frontmost app, including moving focus to the field the agent needs, is allowed; bringing an app to the front that was not there, global input, or moving the physical cursor is not. A stable foreground receiver is allowed, and switching unrelated apps does not by itself stop the workflow. The integration/agent owns the user's semantic authorization; observing an app is not a new authorization grant.
+
+Observing an Electron app may switch it to Chromium's complete accessibility mode through Electron's public AXManualAccessibility attribute. This sends no input and changes no content or focus, but it increases that app's accessibility work (CPU/memory) until it restarts. OCU does not turn it off, because another assistive client may rely on the same shared mode.
+
+The user can bring any app forward at any time, including one an agent is working in, to watch it. OCU only undoes an app jumping to the front as a reaction to OCU's own keystroke or click (within one second, once), and never when the user clicked or held Command/Control (Cmd+Tab, Spotlight). It reads only input timing and modifier state, never what was typed. Working inside the app that is already frontmost is not affected.
