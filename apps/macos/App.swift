@@ -77,14 +77,15 @@ final class HostModel: ObservableObject {
         paused = state["paused"] as? Bool ?? false
         status = paused ? "Stopped" : ((state["busy"] as? Bool == true) ? "Working" : "Ready")
         // Each agent works in at most one app at a time; show which.
-        var apps: [String: String] = [:]
+        var apps: [String: String] = [:], slots: [String: String] = [:]
         for workflow in state["workflows"] as? [[String: Any]] ?? [] {
             guard let client = workflow["client"] as? String, let pid = (workflow["app_pid"] as? NSNumber)?.int32Value else { continue }
             apps[client] = NSRunningApplication(processIdentifier: pid)?.localizedName ?? "PID \(pid)"
+            if let slot = (workflow["slot"] as? NSNumber)?.intValue { slots[client] = String(slot) }
         }
         clients = (state["clients"] as? [[String: Any]] ?? []).map {
             let id = $0["id"] as? String ?? ""
-            return ["id": id, "name": $0["name"] as? String ?? "Client", "app": apps[id] ?? ""]
+            return ["id": id, "name": $0["name"] as? String ?? "Client", "app": apps[id] ?? "", "slot": slots[id] ?? ""]
         }
     }
     func command(_ args: [String]) {
@@ -174,6 +175,10 @@ struct ComputerUseApp: App {
                 Menu("Launch at Login") { Button("Enable") { model.login(true) }; Button("Disable") { model.login(false) } }
                 ForEach(model.clients, id: \.self) { client in
                     HStack {
+                        // The same color as this agent's on-screen cursor.
+                        if let slot = Int(client["slot"] ?? "") {
+                            Circle().fill(Color(nsColor: AgentCursorView.palette[slot % AgentCursorView.palette.count])).frame(width: 8, height: 8)
+                        }
                         VStack(alignment: .leading) {
                             Text(client["name"] ?? "Client")
                             if let app = client["app"], !app.isEmpty { Text("Working in \(app)").font(.caption).foregroundStyle(.secondary) }

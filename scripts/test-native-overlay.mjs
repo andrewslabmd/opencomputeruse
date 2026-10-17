@@ -53,7 +53,8 @@ try {
   // The overlay for this agent: OCU's on-screen window with the fixture window's exact bounds.
   const overlay = list => {
     const target = list.findIndex(w => w.id === fixture.window);
-    const panel = list.findIndex(w => w.pid === ocuPid && target >= 0 && JSON.stringify(w.bounds) === JSON.stringify(list[target].bounds));
+    // Directly above the target, with its exact bounds (windows of equal size elsewhere do not count).
+    const panel = target > 0 && list[target - 1].pid === ocuPid && JSON.stringify(list[target - 1].bounds) === JSON.stringify(list[target].bounds) ? target - 1 : -1;
     return { target, panel, id: list[panel]?.id };
   };
   let r = await observe();

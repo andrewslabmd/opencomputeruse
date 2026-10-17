@@ -8,7 +8,8 @@ import QuartzCore
 // unrelated apps. The panel draws a highlight around the window, the pointer
 // in the agent's color with its name, and a ripple on clicks. OCU's own
 // observations and screenshots capture only the target app's windows, so the
-// overlay never appears in what an agent sees.
+// overlay never appears in what an agent sees. While an agent is acting, its
+// pointer glides to each target; while it thinks between calls, it bounces.
 struct AgentCursor: Decodable, Equatable {
     let client: String
     let name: String
@@ -21,6 +22,7 @@ struct AgentCursor: Decodable, Equatable {
     let to_x: Double?
     let to_y: Double?
     let at: Double
+    let busy: Bool?
 }
 
 @MainActor
@@ -100,7 +102,10 @@ final class AgentCursorPanel: NSPanel {
 final class AgentCursorView: NSView {
     static let palette: [NSColor] = [.systemBlue, .systemPurple, .systemOrange, .systemGreen, .systemPink, .systemTeal]
     private let border = CAShapeLayer()
+    /// Pointer and name tag move and bounce together; the marker's position is the tip.
+    private let marker = CALayer()
     private let pointer = CALayer()
+    private var activity: Bool?
     private let label = CATextLayer()
     private let labelBackground = CALayer()
     private var shown: AgentCursor?
@@ -124,7 +129,9 @@ final class AgentCursorView: NSView {
         label.fontSize = 11; label.font = NSFont.systemFont(ofSize: 11, weight: .semibold)
         label.foregroundColor = NSColor.white.cgColor; label.alignmentMode = .center
         labelBackground.addSublayer(label)
-        for sublayer in [border, labelBackground, pointer] { layer?.addSublayer(sublayer) }
+        pointer.position = .zero
+        marker.addSublayer(labelBackground); marker.addSublayer(pointer)
+        for sublayer in [border, marker] { layer?.addSublayer(sublayer) }
     }
     required init?(coder: NSCoder) { nil }
 
@@ -146,7 +153,9 @@ final class AgentCursorView: NSView {
         let textWidth = (cursor.name as NSString).size(withAttributes: [.font: NSFont.systemFont(ofSize: 11, weight: .semibold)]).width
         labelBackground.bounds = CGRect(x: 0, y: 0, width: ceil(textWidth) + 14, height: 18)
         label.frame = labelBackground.bounds.insetBy(dx: 0, dy: 2)
+        labelBackground.position = CGPoint(x: 14 + labelBackground.bounds.width / 2, y: 24)
         CATransaction.commit()
+        setActivity(busy: cursor.busy == true)
 
         let point = CGPoint(x: cursor.x - windowOrigin.x, y: cursor.y - windowOrigin.y)
         // Window moves keep the cursor in place without animation; a new action glides there.
@@ -167,13 +176,23 @@ final class AgentCursorView: NSView {
             // After the glide, where the action lands.
             DispatchQueue.main.asyncAfter(deadline: .now() + (first ? 0 : 0.25)) { [weak self] in self?.ripple(at: point) }
         }
-        pointer.opacity = Date().timeIntervalSince1970 * 1000 - cursor.at > 8000 ? 0.55 : 1
         shown = cursor
     }
 
-    private func place(_ point: CGPoint) {
-        pointer.position = point
-        labelBackground.position = CGPoint(x: point.x + 14 + labelBackground.bounds.width / 2, y: point.y + 24)
+    private func place(_ point: CGPoint) { marker.position = point }
+
+    /// Thinking between calls: pointer and name tag bounce. Acting: no extra
+    /// motion; the glide to each target and the click ripple show the work.
+    private func setActivity(busy: Bool) {
+        guard activity != busy else { return }
+        activity = busy
+        marker.removeAnimation(forKey: "activity")
+        guard !busy else { return }
+        let bounce = CAKeyframeAnimation(keyPath: "transform.translation.y")
+        bounce.values = [0, -7, 0, -2.5, 0, 0]; bounce.keyTimes = [0, 0.22, 0.44, 0.56, 0.68, 1]
+        bounce.timingFunctions = [.init(name: .easeOut), .init(name: .easeIn), .init(name: .easeOut), .init(name: .easeIn), .init(name: .linear)]
+        bounce.duration = 1.1; bounce.repeatCount = .infinity
+        marker.add(bounce, forKey: "activity")
     }
 
     private func applyColor(_ color: NSColor) {
@@ -194,7 +213,7 @@ final class AgentCursorView: NSView {
         ring.fillColor = color.withAlphaComponent(0.18).cgColor
         ring.strokeColor = color.cgColor; ring.lineWidth = 2
         ring.position = point; ring.opacity = 0
-        layer?.insertSublayer(ring, below: pointer)
+        layer?.insertSublayer(ring, below: marker)
         let grow = CABasicAnimation(keyPath: "transform.scale"); grow.fromValue = 0.3; grow.toValue = 1.4
         let fade = CABasicAnimation(keyPath: "opacity"); fade.fromValue = 0.9; fade.toValue = 0
         let group = CAAnimationGroup(); group.animations = [grow, fade]; group.duration = 0.5

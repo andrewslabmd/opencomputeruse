@@ -196,7 +196,15 @@ test('each agent cursor is published for the window it acts in and cleared when 
   wb.broker.onCursor({ pid: 202, window_id: 9, x: 'bad', y: 40 }); // ignored
   await host.cursorWriting;
   let cursors = await read();
-  assert.deepEqual(cursors.map(c => [c.name, c.slot, c.pid, c.window_id, c.x, c.y, c.kind]), [['a', 0, 101, 7, 10, 20, 'click'], ['b', 1, 202, 9, 30, 40, 'type']]);
+  assert.deepEqual(cursors.map(c => [c.name, c.slot, c.pid, c.window_id, c.x, c.y, c.kind, c.busy]), [['a', 0, 101, 7, 10, 20, 'click', false], ['b', 1, 202, 9, 30, 40, 'type', false]]);
+  // A call in flight marks that agent busy, so its cursor shows activity.
+  for (const x of brokers) x.block = true;
+  const pending = act(a); const rejected = assert.rejects(pending);
+  await new Promise(r => setTimeout(r, 30)); await host.cursorWriting;
+  assert.deepEqual((await read()).map(c => [c.name, c.busy]), [['a', true], ['b', false]]);
+  assert.deepEqual((await a.request('status')).workflows.map(w => w.slot).sort(), [0, 1]);
+  await a.request('cancel'); await rejected; for (const x of brokers) x.block = false;
+  await observeApp(a, 'Fixture'); wa.broker.onCursor({ pid: 101, window_id: 7, x: 10, y: 20, kind: 'click' }); await host.cursorWriting;
   // A cursor belongs to the app its workflow holds: moving to another app hides it.
   wa.broker.onCursor({ pid: 999, window_id: 3, x: 1, y: 1, kind: 'click' }); await host.cursorWriting;
   assert.deepEqual((await read()).map(c => c.name), ['b']);

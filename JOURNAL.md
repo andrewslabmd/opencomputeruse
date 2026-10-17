@@ -8,6 +8,11 @@ Dated history of what changed and how it was verified. Earlier development took 
 - Evidence: `pnpm check` after the change.
 - Remaining uncertainty: the final public name is still undecided.
 
+## 2026-10-17 — Cursor motion while thinking, color per agent visible
+
+- Outcome: each published cursor carries `busy` (a call in flight) and status lists each workflow's color `slot`. While an agent thinks between calls its pointer and name tag bounce; while a call runs there is no extra motion. The menu-bar list shows each agent's color dot. Requested by the maintainer after a first version that bounced during calls instead.
+- Evidence: host contract test for `busy` and slots; a standalone harness of the overlay view measured the pointer's top edge across eight window captures (working: constant; thinking: 166–180 px at 2x). Live with two agents on two fixtures, each overlay was found directly above its own window: Agent A blue, Agent B purple.
+
 ## 2026-10-17 — App icon and agent cursor overlay
 
 - Icon: an Icon Composer document (`assets/icon/OpenComputerUse.icon`) modeled on Airpoint's: dark tile, two blue ripple layers and Phosphor's `navigation-arrow` pointer (MIT, credited in `THIRD_PARTY_NOTICES.md`) clicking at their center. `assets/icon/layers.swift` regenerates the layers; `pnpm build:icon` (Xcode 26 or later) compiles the committed `Assets.car` and `.icns`, which `pnpm build` copies into the app and the helper. Finder shows the icon on both.

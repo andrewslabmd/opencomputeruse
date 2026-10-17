@@ -46,7 +46,7 @@ export class Host {
   // Only workflows that still hold the app the cursor belongs to are listed.
   cursors() {
     return [...this.workflows.values()].filter(w => w.cursor && w.pid === w.cursor.pid && !w.stopping)
-      .map(w => ({ client: w.id, name: this.clients.get(w.id)?.name ?? 'Agent', slot: w.slot, ...w.cursor }));
+      .map(w => ({ client: w.id, name: this.clients.get(w.id)?.name ?? 'Agent', slot: w.slot, busy: w.inflight, ...w.cursor }));
   }
   async publishCursors() {
     if (this.closingCursors) return;
@@ -153,7 +153,7 @@ export class Host {
     const claimed = [...this.workflows.values()].filter(w => w.pid != null);
     const cleanupError = [...this.workflows.values()].find(w => w.cleanupError)?.cleanupError;
     return { version: VERSION, pid: process.pid, parent_pid: this.parentPid, ...(this.closing ? { closing: true } : {}), ...(this.parentPid && process.ppid !== this.parentPid ? { orphaned: true } : {}), paused: this.paused, busy: this.inflight, stopping: this.stopping || [...this.workflows.values()].some(w => w.stopping), owner: this.owner, ...(cleanupError ? { cleanup_error: cleanupError } : {}),
-      workflows: claimed.map(w => ({ client: w.id, app_pid: w.pid, busy: w.inflight })),
+      workflows: claimed.map(w => ({ client: w.id, app_pid: w.pid, slot: w.slot, busy: w.inflight })),
       clients: [...this.clients.values()].filter(c => c.authenticated).map(c => ({ id: c.id, name: c.name, ownsExecution: claimed.some(w => w.id === c.id) })) };
   }
   async restorePause() {
