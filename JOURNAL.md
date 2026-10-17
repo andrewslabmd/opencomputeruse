@@ -8,7 +8,8 @@ Dated history of what changed and how it was verified. Earlier development took 
 - Evidence: `pnpm check` passes (84 JavaScript, 154 Swift); the workflow and template YAML parse; the documentation-structure check passes; the open-source readiness check passes except the code of conduct's contact, since set to hello@andrewslabmd.com; it now passes.
 - Live: the renamed build is a new app to macOS, so Accessibility and Screen Recording were granted again (once per identifier change; the old identifier's entries stay in System Settings until removed). On that build `test-native-clicks.mjs` passed 12/12 (AXCancel again left the menu open; Escape closed it) and `test-native-agents.mjs` 10/10.
 - Test change: both live tests now fail only when a fixture comes to the front or the foreground guard catches an app jumping forward after OCU input. A user switching apps during a run (recorded by the guard as `user_switch`) is reported instead; one run had failed on exactly that while OCU input reached only the fixtures.
-- Remaining uncertainty: the checks workflow has not run on GitHub's macOS image.
+- Dependencies: Dependabot reported three medium advisories (ajv ReDoS with the unused `$data` option, fast-uri host normalization, yaml deep nesting in tests only). Updated ajv 8.18.0, fast-uri 3.1.8 and yaml 2.8.3; `pnpm check` and the live click test pass on the rebuilt app, whose permissions carried over.
+- Remaining uncertainty: GitHub did not start the checks workflow or Dependabot's own runs on the private repository (`startup_failure`, no jobs created, Actions enabled for the repository); the reason is not visible through the API. The workflow has not yet run on GitHub's macOS image.
 
 ## 2026-10-16 — Public repository and license
 
