@@ -29,6 +29,14 @@ final class ArchiveCard: NSView {
 
 final class Fixture: NSObject, NSApplicationDelegate, NSTableViewDataSource, NSTableViewDelegate {
     let output = URL(fileURLWithPath: CommandLine.arguments[1])
+    // Optional, for demos: --origin x,y (window position) and --front (shown above
+    // other windows without activating the app or taking keyboard focus).
+    let origin: NSPoint = {
+        guard let i = CommandLine.arguments.firstIndex(of: "--origin"), i + 1 < CommandLine.arguments.count else { return NSPoint(x: 60, y: 60) }
+        let parts = CommandLine.arguments[i + 1].split(separator: ",").compactMap { Double($0) }
+        return parts.count == 2 ? NSPoint(x: parts[0], y: parts[1]) : NSPoint(x: 60, y: 60)
+    }()
+    let front = CommandLine.arguments.contains("--front")
     let rows = ["Alpha", "Beta", "Gamma", "Delta", "Epsilon"]
     var window: NSWindow!
     let table = NSTableView()
@@ -58,7 +66,7 @@ final class Fixture: NSObject, NSApplicationDelegate, NSTableViewDataSource, NST
     }
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
-        window = NSWindow(contentRect: NSRect(x: 60, y: 60, width: 440, height: 400), styleMask: [.titled, .closable], backing: .buffered, defer: false)
+        window = NSWindow(contentRect: NSRect(x: origin.x, y: origin.y, width: 440, height: 400), styleMask: [.titled, .closable], backing: .buffered, defer: false)
         window.title = "OCU click fixture"
         window.isReleasedWhenClosed = false
         let content = window.contentView!
@@ -90,7 +98,7 @@ final class Fixture: NSObject, NSApplicationDelegate, NSTableViewDataSource, NST
         let scroll = NSScrollView(frame: NSRect(x: 20, y: 20, width: 400, height: 200)); scroll.documentView = table
         content.addSubview(scroll)
         table.reloadData()
-        window.orderFront(nil)
+        if front { window.orderFrontRegardless() } else { window.orderFront(nil) }
         lastFront = NSWorkspace.shared.frontmostApplication?.processIdentifier ?? 0
         record()
         // Foreground audit every 10 ms for the whole run.

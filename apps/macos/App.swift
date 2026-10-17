@@ -13,6 +13,10 @@ final class HostModel: ObservableObject {
         didSet { UserDefaults.standard.set(showCursors, forKey: "showAgentCursors"); overlay.enabled = showCursors }
     }
     lazy var overlay = CursorOverlay(runtime: runtime)
+    /// The menu-bar icon: idle, or animated in the working agents' colors.
+    @Published var menuBarImage = MenuBarIcon.make()
+    private var workingSlots: [Int] = []
+    private var animation: Timer?
     private var helper: Process?
     private var host: Process?
     private var lock: Int32 = -1
@@ -72,7 +76,7 @@ final class HostModel: ObservableObject {
     }
     func refresh() {
         guard helper?.isRunning == true else { status = "Unavailable"; return }
-        guard host?.isRunning == true else { overlay.clear(); restartHost(); return }
+        guard host?.isRunning == true else { overlay.clear(); setWorking([]); restartHost(); return }
         guard let data = try? Data(contentsOf: runtime.appendingPathComponent("status.json")), let state = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return }
         paused = state["paused"] as? Bool ?? false
         status = paused ? "Stopped" : ((state["busy"] as? Bool == true) ? "Working" : "Ready")
@@ -83,10 +87,27 @@ final class HostModel: ObservableObject {
             apps[client] = NSRunningApplication(processIdentifier: pid)?.localizedName ?? "PID \(pid)"
             if let slot = (workflow["slot"] as? NSNumber)?.intValue { slots[client] = String(slot) }
         }
+        // Working: any agent holds an app, thinking or acting.
+        setWorking((state["workflows"] as? [[String: Any]] ?? []).compactMap { ($0["slot"] as? NSNumber)?.intValue }.sorted())
         clients = (state["clients"] as? [[String: Any]] ?? []).map {
             let id = $0["id"] as? String ?? ""
             return ["id": id, "name": $0["name"] as? String ?? "Client", "app": apps[id] ?? "", "slot": slots[id] ?? ""]
         }
+    }
+    /// Animates the menu-bar ripple while any agent works; several agents alternate colors per pulse.
+    func setWorking(_ slots: [Int]) {
+        guard slots != workingSlots else { return }
+        workingSlots = slots
+        animation?.invalidate(); animation = nil
+        guard !slots.isEmpty else { menuBarImage = MenuBarIcon.make(); return }
+        let start = Date()
+        func frame() {
+            let elapsed = Date().timeIntervalSince(start), pulses = elapsed / MenuBarIcon.period
+            let slot = workingSlots[Int(pulses) % max(workingSlots.count, 1)]
+            menuBarImage = MenuBarIcon.make(color: AgentCursorView.palette[slot % AgentCursorView.palette.count], phase: CGFloat(pulses - floor(pulses)))
+        }
+        frame()
+        animation = Timer.scheduledTimer(withTimeInterval: 1.0 / 20, repeats: true) { _ in MainActor.assumeIsolated { frame() } }
     }
     func command(_ args: [String]) {
         Task {
@@ -159,7 +180,7 @@ final class HostModel: ObservableObject {
 struct ComputerUseApp: App {
     @StateObject private var model = HostModel()
     var body: some Scene {
-        MenuBarExtra("OpenComputerUse", systemImage: "cursorarrow.motionlines") {
+        MenuBarExtra {
             VStack(alignment: .leading, spacing: 10) {
                 Text("OpenComputerUse · Development").font(.headline)
                 Text(model.status)
@@ -190,6 +211,8 @@ struct ComputerUseApp: App {
                 Divider()
                 Button("Quit") { model.quit() }
             }.padding().frame(width: 380)
+        } label: {
+            Image(nsImage: model.menuBarImage)
         }.menuBarExtraStyle(.window)
     }
 }

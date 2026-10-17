@@ -30,6 +30,8 @@ name and app identifiers may still change.
 - **Shows where agents act:** each agent gets its own colored pointer, name
   and window highlight, drawn only above the window it works in, so it never
   covers other apps. Turn it off with **Show agent cursors** in the menu bar.
+- **Shows when an agent is in control:** while any agent holds an app, the
+  menu-bar icon's ripples turn that agent's color and pulse.
 - **Stop** in the menu bar stops every agent; nothing resumes until you choose
   Resume.
 
@@ -131,6 +133,7 @@ acceptable, with the current build installed and running:
 node scripts/test-native-clicks.mjs --interactive       # clicks, actions, list_apps
 node scripts/test-native-agents.mjs --interactive       # two concurrent agents
 node scripts/test-native-overlay.mjs --interactive      # agent cursor overlay
+node scripts/demo-agents.mjs --interactive              # watch two agents work for a minute
 node scripts/test-native-selection.mjs --interactive    # selection in Finder and AppKit
 node scripts/test-native-observation.mjs --interactive  # large trees, lifecycle, Stop
 node scripts/test-native-interaction.mjs --interactive  # scroll, reveal, save panels

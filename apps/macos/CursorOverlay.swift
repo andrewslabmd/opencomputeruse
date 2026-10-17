@@ -111,7 +111,7 @@ final class AgentCursorView: NSView {
     private var shown: AgentCursor?
     private var color = NSColor.systemBlue
     // Phosphor navigation-arrow (fill), as in the app icon; see THIRD_PARTY_NOTICES.md.
-    private static let arrowPath = "M248,121.58a15.76,15.76,0,0,1-11.29,15l-.2.06-78,21.84-21.84,78-.06.2a15.77,15.77,0,0,1-15,11.29h-.3a15.77,15.77,0,0,1-15.07-10.67L41,61.41a1,1,0,0,1-.05-.16A16,16,0,0,1,61.25,40.9l.16.05,175.92,65.26A15.78,15.78,0,0,1,248,121.58Z"
+    static let arrowPath = "M248,121.58a15.76,15.76,0,0,1-11.29,15l-.2.06-78,21.84-21.84,78-.06.2a15.77,15.77,0,0,1-15,11.29h-.3a15.77,15.77,0,0,1-15.07-10.67L41,61.41a1,1,0,0,1-.05-.16A16,16,0,0,1,61.25,40.9l.16.05,175.92,65.26A15.78,15.78,0,0,1,248,121.58Z"
     private static let pointerSize: CGFloat = 26
     /// The arrow's tip within its 256-unit box, scaled to the layer.
     private static let tip = CGPoint(x: 46 * pointerSize / 256, y: 46 * pointerSize / 256)
