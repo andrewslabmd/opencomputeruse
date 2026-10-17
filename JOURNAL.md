@@ -2,6 +2,12 @@
 
 Dated history of what changed and how it was verified. Earlier development took place in a private repository; this public repository starts from its state on 2026-10-16, summarized below. New entries record actual work, verification and remaining uncertainty, and contain no personal application data.
 
+## 2026-10-17 — Repository made public
+
+- Outcome: `andrewslabmd/opencomputeruse` is public with only `main` (no tags). Enabled and verified: private vulnerability reporting, secret scanning with push protection, Dependabot alerts and security updates, and protection of `main` against force pushes and deletion. Wiki and Projects are off; topics are set. GitHub detects Apache-2.0 and the community profile is complete.
+- Evidence: repository settings read back through the GitHub API after each change; all five Dependabot alerts are fixed.
+- Remaining uncertainty: the checks workflow has still not run. GitHub did not start the job because the owner account is locked due to a billing issue (the earlier `startup_failure` runs had the same cause); it runs once the account's billing is resolved. `pnpm check` passes locally.
+
 ## 2026-10-17 — Open-source readiness
 
 - Outcome: app identifiers moved to the publisher's domain (`com.andrewslabmd.opencomputeruse.dev`, `.dev.helper`, fixture `.clickfixture`). The README is rewritten for new users: purpose, status, install, connecting an agent, tools, safety and responsible use, limits, development. Added `SECURITY.md` (private reporting through GitHub), `CONTRIBUTING.md` (Developer Certificate of Origin sign-off), the Contributor Covenant 2.1, issue and pull-request templates, Dependabot, and a macOS checks workflow that runs automatically only once the repository is public. The policy and integration notes now state the license and the `list_apps` tool.
@@ -9,7 +15,7 @@ Dated history of what changed and how it was verified. Earlier development took 
 - Live: the renamed build is a new app to macOS, so Accessibility and Screen Recording were granted again (once per identifier change; the old identifier's entries stay in System Settings until removed). On that build `test-native-clicks.mjs` passed 12/12 (AXCancel again left the menu open; Escape closed it) and `test-native-agents.mjs` 10/10.
 - Test change: both live tests now fail only when a fixture comes to the front or the foreground guard catches an app jumping forward after OCU input. A user switching apps during a run (recorded by the guard as `user_switch`) is reported instead; one run had failed on exactly that while OCU input reached only the fixtures.
 - Dependencies: Dependabot reported three medium advisories (ajv ReDoS with the unused `$data` option, fast-uri host normalization, yaml deep nesting in tests only). Updated ajv 8.18.0, fast-uri 3.1.8 and yaml 2.8.3; `pnpm check` and the live click test pass on the rebuilt app, whose permissions carried over.
-- Remaining uncertainty: GitHub did not start the checks workflow or Dependabot's own runs on the private repository (`startup_failure`, no jobs created, Actions enabled for the repository); the reason is not visible through the API. The workflow has not yet run on GitHub's macOS image.
+- GitHub did not start the checks workflow or Dependabot's own runs while the repository was private (`startup_failure`); the cause, found after it became public, is the account billing lock recorded above.
 
 ## 2026-10-16 — Public repository and license
 
