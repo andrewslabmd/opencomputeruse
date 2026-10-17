@@ -1,6 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { resolve, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { parse } from 'yaml';
 import { Client } from '../packages/cli/client.mjs';
 
@@ -8,6 +9,8 @@ import { Client } from '../packages/cli/client.mjs';
 // two owned fixture windows for about a minute, with pauses where an agent
 // "thinks". The windows are shown above other windows without taking focus.
 // Uses the installed, running app. Run: node scripts/demo-agents.mjs --interactive
+// Paths below are relative to the repository, wherever the script is run from.
+process.chdir(fileURLToPath(new URL('..', import.meta.url)));
 if (!process.argv.includes('--interactive')) throw new Error('The demo sends real input to its own fixture windows; run it with --interactive');
 const rounds = Number(process.argv.find(a => a.startsWith('--rounds='))?.slice(9) ?? 2);
 const dir = resolve(`work/demo-${Date.now()}`);
