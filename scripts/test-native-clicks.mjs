@@ -13,7 +13,7 @@ const dir = resolve(`work/native-clicks-${Date.now()}`);
 const app = join(dir, 'ClickFixture.app'), statePath = join(dir, 'state.json');
 await mkdir(join(app, 'Contents/MacOS'), { recursive: true });
 execFileSync('xcrun', ['swiftc', 'tests/native-fixtures/ClickFixture.swift', '-o', join(app, 'Contents/MacOS/ClickFixture')]);
-await writeFile(join(app, 'Contents/Info.plist'), `<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd"><plist version="1.0"><dict><key>CFBundleName</key><string>ClickFixture</string><key>CFBundleExecutable</key><string>ClickFixture</string><key>CFBundleIdentifier</key><string>com.medhue.opencomputeruse.clickfixture</string><key>CFBundlePackageType</key><string>APPL</string><key>LSUIElement</key><true/></dict></plist>`);
+await writeFile(join(app, 'Contents/Info.plist'), `<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd"><plist version="1.0"><dict><key>CFBundleName</key><string>ClickFixture</string><key>CFBundleExecutable</key><string>ClickFixture</string><key>CFBundleIdentifier</key><string>com.andrewslabmd.opencomputeruse.clickfixture</string><key>CFBundlePackageType</key><string>APPL</string><key>LSUIElement</key><true/></dict></plist>`);
 // LaunchServices in the background: the fixture never takes the front.
 execFileSync('open', ['-g', '-n', app, '--args', statePath]);
 const client = new Client();
@@ -51,7 +51,7 @@ try {
   const listed = await call('use_list_apps', {});
   const entry = listed.applications.find(a => a.pid === pid);
   assert.ok(entry, 'The background accessory fixture must be listed');
-  assert.equal(entry.bundle_id, 'com.medhue.opencomputeruse.clickfixture'); assert.notEqual(entry.frontmost, true);
+  assert.equal(entry.bundle_id, 'com.andrewslabmd.opencomputeruse.clickfixture'); assert.notEqual(entry.frontmost, true);
   assert.ok(entry.windows.some(w => w.title === 'OCU click fixture' && w.on_screen && w.window_id === (listed && records.at(-1).actual.window)), JSON.stringify(entry));
   // None while the login window is in front (a locked Mac): it is not a listed app.
   assert.ok(listed.applications.filter(a => a.frontmost).length <= 1, 'At most one app is marked frontmost');
@@ -141,9 +141,14 @@ try {
 
   await client.request('release');
   const final = await state();
-  assert.deepEqual(final.foreground_changes, [], 'The foreground app never changed');
+  // The user may switch apps during the run. OCU's fault is the fixture coming to
+  // the front, or the guard catching an app that jumped forward after OCU's input.
+  const guard = records.flatMap(r => (r.result.actions ?? []).flatMap(x => x.foreground_guard ?? []));
+  assert.ok(!final.foreground_changes.some(c => c.to === pid), 'The fixture never came to the front');
   assert.notEqual(final.frontmost_pid, pid);
-  pass('no foreground change during the run');
+  assert.deepEqual(guard.filter(g => g.outcome !== 'user_switch'), [], 'No app jumped to the front because of OCU input');
+  pass('the fixture never came to the front and no app jumped forward because of OCU input');
+  if (final.foreground_changes.length) console.log(`Foreground changes by the user during the run: ${final.foreground_changes.length}`);
   // Reported, not asserted: the user may move the mouse during the run, and
   // the cursor position cannot tell their movement from OCU's.
   console.log(`Physical pointer position changed during the run: ${final.pointer_moved}`);

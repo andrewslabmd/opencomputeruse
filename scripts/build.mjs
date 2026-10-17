@@ -16,8 +16,8 @@ for (const [name, source] of [['ocu', 'packages/cli/main.mjs'], ['ocu-host', 'pa
   await run(resolve(root, 'node_modules/.bin/bun'), ['build', '--compile', '--target=bun-darwin-arm64', source, '--outfile', join(mac, name)]);
 }
 function plist(name, executable, id) { return `<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd"><plist version="1.0"><dict><key>CFBundleName</key><string>${name}</string><key>CFBundleDisplayName</key><string>${name}</string><key>CFBundleExecutable</key><string>${executable}</string><key>CFBundleIdentifier</key><string>${id}</string><key>CFBundlePackageType</key><string>APPL</string><key>CFBundleVersion</key><string>1</string><key>CFBundleShortVersionString</key><string>0.1.0</string><key>LSMinimumSystemVersion</key><string>15.0</string><key>LSUIElement</key><true/><key>NSScreenCaptureUsageDescription</key><string>Capture the selected app for agent observations and your private preview.</string></dict></plist>`; }
-await writeFile(join(app, 'Contents/Info.plist'), plist('OpenComputerUse Dev', 'OpenComputerUse', 'com.medhue.opencomputeruse.dev'));
-await writeFile(join(helper, 'Contents/Info.plist'), plist('OpenComputerUse Helper', 'ocu-helper', 'com.medhue.opencomputeruse.dev.helper'));
+await writeFile(join(app, 'Contents/Info.plist'), plist('OpenComputerUse Dev', 'OpenComputerUse', 'com.andrewslabmd.opencomputeruse.dev'));
+await writeFile(join(helper, 'Contents/Info.plist'), plist('OpenComputerUse Helper', 'ocu-helper', 'com.andrewslabmd.opencomputeruse.dev.helper'));
 await mkdir(resources, { recursive: true });
 await copyFile(resolve(root, 'THIRD_PARTY_NOTICES.md'), join(resources, 'THIRD_PARTY_NOTICES.md'));
 const identity = process.env.OCU_SIGN_IDENTITY || '-';

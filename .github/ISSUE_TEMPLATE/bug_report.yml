@@ -1,0 +1,38 @@
+name: Bug report
+description: Something does not work as documented.
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you or the agent did, what you expected and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: Prefer a public app (TextEdit, Finder, Calculator) or a small fixture over your own content.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Commit
+      description: Output of `git rev-parse --short HEAD` for the build you ran.
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: macOS version, Mac model (Apple silicon or Intel), and the agent client and version.
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Tool results or output
+      description: Observations can contain your application content. Remove personal data and secrets before pasting.
+      render: text

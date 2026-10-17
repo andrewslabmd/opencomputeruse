@@ -15,7 +15,7 @@ const dir = resolve(`work/native-agents-${Date.now()}`);
 const app = join(dir, 'ClickFixture.app');
 await mkdir(join(app, 'Contents/MacOS'), { recursive: true });
 execFileSync('xcrun', ['swiftc', 'tests/native-fixtures/ClickFixture.swift', '-o', join(app, 'Contents/MacOS/ClickFixture')]);
-await writeFile(join(app, 'Contents/Info.plist'), `<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd"><plist version="1.0"><dict><key>CFBundleName</key><string>ClickFixture</string><key>CFBundleExecutable</key><string>ClickFixture</string><key>CFBundleIdentifier</key><string>com.medhue.opencomputeruse.clickfixture</string><key>CFBundlePackageType</key><string>APPL</string><key>LSUIElement</key><true/></dict></plist>`);
+await writeFile(join(app, 'Contents/Info.plist'), `<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd"><plist version="1.0"><dict><key>CFBundleName</key><string>ClickFixture</string><key>CFBundleExecutable</key><string>ClickFixture</string><key>CFBundleIdentifier</key><string>com.andrewslabmd.opencomputeruse.clickfixture</string><key>CFBundlePackageType</key><string>APPL</string><key>LSUIElement</key><true/></dict></plist>`);
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const flat = n => [n, ...(n.children ?? []).flatMap(flat)];
 const nodes = r => r.snapshot.surface.windows.flatMap(w => flat(w.tree));
@@ -104,8 +104,17 @@ try {
   await b.until(s => s.active === false, 'B deactivated on release');
 
   const finals = await Promise.all([a.state(), b.state()]);
-  for (const s of finals) { assert.deepEqual(s.foreground_changes, [], 'The foreground app never changed'); assert.notEqual(s.frontmost_pid, s.pid); }
-  pass('no foreground change in either fixture during the run');
+  // The user may switch apps during the run. OCU's fault is a fixture coming to
+  // the front, or the guard catching an app that jumped forward after OCU's input.
+  const guard = records.flatMap(r => (r.result.actions ?? []).flatMap(x => x.foreground_guard ?? []));
+  for (const s of finals) {
+    assert.ok(!s.foreground_changes.some(c => c.to === a.pid || c.to === b.pid), 'A fixture never came to the front');
+    assert.notEqual(s.frontmost_pid, s.pid);
+  }
+  assert.deepEqual(guard.filter(g => g.outcome !== 'user_switch'), [], 'No app jumped to the front because of OCU input');
+  pass('no fixture came to the front and no app jumped forward because of OCU input');
+  const userSwitches = finals[0].foreground_changes.length;
+  if (userSwitches) console.log(`Foreground changes by the user during the run: ${userSwitches} (guard: ${guard.map(g => g.outcome).join(', ') || 'none attributed'})`);
   console.log(`Physical pointer position changed during the run: ${finals.map(s => s.pointer_moved).join(', ')} (user activity cannot be separated from OCU's)`);
   await writeFile(join(dir, 'acceptance.json'), JSON.stringify({ passed: true, cases, finals, records: records.length }, null, 2));
   console.log(`Evidence: ${dir}`);

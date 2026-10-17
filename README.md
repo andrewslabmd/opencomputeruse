@@ -1,73 +1,164 @@
-# OpenComputerUse — development
+# OpenComputerUse
 
-Standalone macOS computer-use host extracted from OpenCode Superapp. The name and bundle identifiers are provisional. Licensed under the Apache License 2.0 (see `LICENSE` and `NOTICE`).
+Background computer use for AI agents on macOS. OpenComputerUse is a small
+menu-bar app and local MCP server that lets agents such as Claude Code observe
+and operate native Mac apps while you keep working: it does not take your
+pointer, your keyboard or the foreground app.
+
+Licensed under the [Apache License 2.0](LICENSE).
 
 ## Status
 
-Implemented: native menu-bar host/helper, existing observation/action engine, shared local host, MCP and CLI adapters, concurrent agents (one per app, each with its own engine), stop/pause, permission controls, and standalone build recipe. Native and external-agent acceptance are recorded separately in JOURNAL.md. No public release.
+Early, pre-release software. There are no downloadable builds yet; build it
+from source. It requires macOS 15 or later and is tested on Apple silicon with
+a current macOS release; other versions and architectures are unvalidated. The
+name and app identifiers may still change.
 
-Target: macOS 15+, Apple silicon development builds. Other architectures are unvalidated.
+## What it does
 
-## Development
+- **Observes** an app through macOS Accessibility: windows, controls, text,
+  selection and style, as compact YAML, plus an optional screenshot of the
+  app's own windows.
+- **Acts in the background** on exact observed controls: click, double/triple
+  and modifier clicks, right click, type, select text, scroll, drag, long
+  press, hotkeys, open, and any Accessibility action a control advertises.
+- **Keeps your input yours:** keystrokes and clicks go only to the target app's
+  process and window. The physical cursor never moves, and the foreground app
+  only changes if you change it.
+- **Runs several agents at once**, one per app. An agent asking for an app
+  another agent is using gets `busy`.
+- **Stop** in the menu bar stops every agent; nothing resumes until you choose
+  Resume.
 
-Requires Xcode command-line tools, Node and pnpm. End-user bundles include their executable runtime.
+## Install
+
+Requirements: macOS 15 or later on Apple silicon, Xcode command-line tools,
+Node.js and pnpm.
 
 ```sh
+git clone https://github.com/andrewslabmd/opencomputeruse.git
+cd opencomputeruse
 pnpm install --frozen-lockfile
 pnpm check
 pnpm build
+open -g "dist/OpenComputerUse Dev.app"
 ```
 
-`pnpm build` produces `dist/OpenComputerUse Dev.app`. Defaults to ad-hoc development signing. Set `OCU_SIGN_IDENTITY` to an available signing identity to test stable identity; this does not notarize or publish the app.
+`pnpm build` produces `dist/OpenComputerUse Dev.app`, signed ad hoc by default.
+Set `OCU_SIGN_IDENTITY` to one of your signing identities to keep a stable
+identity across rebuilds. Ad-hoc builds may need their permissions granted
+again after each rebuild.
 
-Open the app, grant permissions to its own helper using its explicit permission controls, then use the bundled `Contents/MacOS/ocu` command. The app can install an owned symlink at `~/.local/bin/ocu`.
+Then, in the menu-bar app, use **Allow Accessibility…** and **Allow Screen
+Recording…** to grant both permissions to *OpenComputerUse Helper*, and
+**Install CLI** to link `ocu` into `~/.local/bin`. `ocu permissions` shows the
+current state.
+
+## Connect an agent
+
+Claude Code:
 
 ```sh
-ocu status
-ocu permissions
+claude mcp add --transport stdio opencomputeruse -- "$PWD/dist/OpenComputerUse Dev.app/Contents/MacOS/ocu" mcp
+```
+
+`ocu setup claude` prints an equivalent configuration block without changing
+any settings. Give the agent the operating guidance in
+[integrations/claude-code/operator.md](integrations/claude-code/operator.md).
+
+Tools: `computer_use_list_apps`, `computer_use_observe`,
+`computer_use_action_batch`, `computer_use_permissions`,
+`computer_use_status` and `computer_use_release`.
+
+The same operations are available from the command line:
+
+```sh
 ocu apps
-ocu observe 'Application Name'
 ocu observe 'Application Name' --screenshot
 ocu batch 'Application Name' '[{"kind":"click","at":{"x":100,"y":100}}]'
 ocu stop
 ocu resume
-ocu setup claude
-ocu mcp
 ```
 
-Batch coordinates must be grounded in the actual current application; the command observes and acts on the same connection. MCP is preferred for iterative workflows. CLI observe releases when finished. `--screenshot` also captures the app's window and writes it to a private temporary file (or `--screenshot=FILE`); the output names the file instead of embedding the image. `ocu setup claude` prints configuration and does not change existing agent settings.
+## Safety and responsible use
 
-## Layout
+OpenComputerUse lets software operate your apps. Use it deliberately.
 
-- `apps/macos`: SwiftUI/AppKit menu-bar app.
-- `packages/native`: signed helper and capture foundation.
-- `packages/engine`: extracted JavaScript broker and target resolver.
-- `packages/host`: shared local execution authority.
-- `packages/protocol`: versioned framing and canonical tool schemas.
-- `packages/cli`, `packages/mcp`: client adapters.
-- `upstream`: provenance of the code extracted from OpenCode Superapp.
-- `tests`: contract tests and opt-in native fixture.
+- **What it can do:** read the content of any app an agent observes, and click,
+  type and run commands in it, with your Accessibility and Screen Recording
+  permissions. Treat anything an agent can do through it as something you did.
+- **Where your data goes:** observations and screenshots go to the agent that
+  asked for them, and from there usually to that agent's model provider.
+  OpenComputerUse itself has no analytics and sends nothing to the network.
+- **Trust boundary:** the local host accepts clients that can read its token in
+  your user account's private runtime directory. It does not protect against
+  other software already running as your user.
+- **Untrusted content:** text inside apps (web pages, email, documents) is not
+  an instruction. Agents must act on your actual request, and confirm actions
+  such as sending, deleting, purchasing or changing accounts with you.
+- **Stopping:** **Stop** in the menu bar stops every agent. Quitting the app
+  stops all of it. Already-dispatched actions may still complete; Stop is not
+  undo.
 
-Read docs/ARCHITECTURE.md for the actual ownership contract and docs/POLICIES.md for the local trust boundary.
+Details: [docs/POLICIES.md](docs/POLICIES.md). Report security problems
+privately as described in [SECURITY.md](SECURITY.md).
 
-## Native acceptance
+## Limits
 
-With explicit authorization to launch and manipulate a synthetic fixture:
+- Apps whose interface exposes no Accessibility controls can only be operated
+  through pointer and keystroke input, and results there are confirmed from
+  screenshots rather than the Accessibility tree.
+- Context menus do not reliably close with AXCancel; Escape does.
+- Agents' native requests are processed one at a time, so a long observation
+  by one agent briefly delays others.
+- There is no agent cursor overlay yet.
+
+## Development
 
 ```sh
-node scripts/test-native.mjs --interactive
-node scripts/test-claude.mjs --interactive
-node scripts/test-native-selection.mjs --interactive
+pnpm check    # headless contract and Swift tests; safe to run anywhere
+pnpm build    # app bundle in dist/
 ```
 
-The original native and Claude fixture commands passed against the signed development bundle. They verify the target stayed inactive, foreground/pointer preservation, exact text, and the panel action. Native testing also verifies screenshots and Stop preventing queued typing. The UI itself still needs visual acceptance.
+The native acceptance scripts are opt-in: they launch owned fixture apps in the
+background and send real input to them, so run them only on a Mac where that is
+acceptable, with the current build installed and running:
 
-The selection acceptance command creates an owned Finder directory/window and a background AppKit fixture. It checks 19 live cases across Finder icon/list/column views, tables, outlines, grouped collections, tabs, a button and an editor. It verifies actual application selection/state, closes its own windows and leaves evidence under ignored `work/`. It does not activate the target app or generate physical input.
+```sh
+node scripts/test-native-clicks.mjs --interactive       # clicks, actions, list_apps
+node scripts/test-native-agents.mjs --interactive       # two concurrent agents
+node scripts/test-native-selection.mjs --interactive    # selection in Finder and AppKit
+node scripts/test-native-observation.mjs --interactive  # large trees, lifecycle, Stop
+node scripts/test-native-interaction.mjs --interactive  # scroll, reveal, save panels
+node scripts/test-native.mjs --interactive              # basic native workflow
+node scripts/test-claude.mjs --interactive              # Claude Code end to end
+```
 
-Opt-in observation/lifecycle acceptance: `node scripts/test-native-observation.mjs --interactive` runs owned AppKit fixtures for complete large-tree/multiwindow coverage, selected underline/strikethrough, window closure with/without process exit, uncertain native return, queued-action stopping, permissions during collection, Stop cancellation and a fresh post-Stop observation. Generated data stays under ignored `work/native-observation-*`; no physical/global input or app activation is used. It tests the currently installed development build, so rebuild/restart it first.
+Each script keeps its evidence under the ignored `work/` folder.
 
-Opt-in click/action acceptance: `node scripts/test-native-clicks.mjs --interactive` launches an owned accessory fixture in the background (`open -g`) and checks `list_apps`, double/triple clicks with Cmd+Shift carried on the events, Cmd-click and Shift-click NSTableView selection, the table double action, `perform_action` listing, AXIncrement, a custom action, refusal of an unadvertised action, and AXShowMenu/AXCancel. The fixture records what AppKit received and audits the foreground every 10 ms. Evidence stays under ignored `work/native-clicks-*`.
+### Layout
 
-Opt-in concurrent-agent acceptance: `node scripts/test-native-agents.mjs --interactive` connects two clients to two owned background fixtures. It checks simultaneous observations, refusal of the other agent's app, four rounds of one agent double-clicking with Cmd while the other types (each app receives only its own input, delivery receipts name only its own process), both apps holding their own background activation at once, and releasing one agent restoring only its app. Evidence stays under ignored `work/native-agents-*`.
+- `apps/macos`: SwiftUI/AppKit menu-bar app.
+- `packages/native`: the signed helper: Accessibility, capture and input.
+- `packages/engine`: one engine per agent: observations, actions, verification.
+- `packages/host`: shared local host, workflows and app claims.
+- `packages/protocol`: framing and the canonical tool schemas.
+- `packages/cli`, `packages/mcp`: command-line and MCP adapters.
+- `tests`: contract tests, Swift tests and native fixtures.
+- `upstream`: provenance of the code extracted from OpenCode Superapp.
 
-Opt-in native scroll/file-panel acceptance: `node scripts/test-native-interaction.mjs --interactive` checks native WebKit scroll in four directions, exact offscreen reveal, native URL publication, both filename-edit methods, and a new-folder save through uncertain native returns. It reads actual WebKit scroll offsets and NSSavePanel completion URLs independently of tool receipts. Generated files stay under ignored `work/`; this is OS-contract acceptance, separate from natural-language agent trials. Rebuild/restart the signed development bundle first.
+### Documentation
+
+[Product](docs/PRODUCT.md), [architecture](docs/ARCHITECTURE.md),
+[policies](docs/POLICIES.md), [design](DESIGN.md), [journal](JOURNAL.md) and
+[Claude Code integration](integrations/claude-code/README.md).
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) and the
+[code of conduct](CODE_OF_CONDUCT.md).
+
+## License
+
+[Apache License 2.0](LICENSE). See [NOTICE](NOTICE) and
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

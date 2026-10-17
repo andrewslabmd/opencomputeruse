@@ -2,6 +2,14 @@
 
 Dated history of what changed and how it was verified. Earlier development took place in a private repository; this public repository starts from its state on 2026-10-16, summarized below. New entries record actual work, verification and remaining uncertainty, and contain no personal application data.
 
+## 2026-10-17 — Open-source readiness
+
+- Outcome: app identifiers moved to the publisher's domain (`com.andrewslabmd.opencomputeruse.dev`, `.dev.helper`, fixture `.clickfixture`). The README is rewritten for new users: purpose, status, install, connecting an agent, tools, safety and responsible use, limits, development. Added `SECURITY.md` (private reporting through GitHub), `CONTRIBUTING.md` (Developer Certificate of Origin sign-off), the Contributor Covenant 2.1, issue and pull-request templates, Dependabot, and a macOS checks workflow that runs automatically only once the repository is public. The policy and integration notes now state the license and the `list_apps` tool.
+- Evidence: `pnpm check` passes (84 JavaScript, 154 Swift); the workflow and template YAML parse; the documentation-structure check passes; the open-source readiness check passes except the code of conduct's contact, since set to hello@andrewslabmd.com; it now passes.
+- Live: the renamed build is a new app to macOS, so Accessibility and Screen Recording were granted again (once per identifier change; the old identifier's entries stay in System Settings until removed). On that build `test-native-clicks.mjs` passed 12/12 (AXCancel again left the menu open; Escape closed it) and `test-native-agents.mjs` 10/10.
+- Test change: both live tests now fail only when a fixture comes to the front or the foreground guard catches an app jumping forward after OCU input. A user switching apps during a run (recorded by the guard as `user_switch`) is reported instead; one run had failed on exactly that while OCU input reached only the fixtures.
+- Remaining uncertainty: the checks workflow has not run on GitHub's macOS image.
+
 ## 2026-10-16 — Public repository and license
 
 Released under the Apache License 2.0 (`LICENSE`, `NOTICE`). The public history starts here as one commit; the private development history is kept outside this repository.

@@ -10,7 +10,7 @@ Local agent processes receive observations and optional screenshots and may tran
 
 Application snapshots are held in engine memory; requested images are temporary. Diagnostic content must not include raw observations or credentials. The input audit journal (`input-audit.jsonl`) records delivery metadata only, never key content. No analytics or cloud endpoint is configured.
 
-No public release until bundled dependency notices, release identity, permission persistence, and native acceptance are verified. Pricing and source licensing remain undecided.
+The source is public under the Apache License 2.0. No binary release until bundled dependency notices, release identity, permission persistence, and native acceptance are verified.
 
 
 Keyboard delivery auditing uses listen-only taps scoped to the target and foreground processes. It reads only source tags until an event matches one of the helper’s own tags; it never records human key content, modifies events or suppresses input. If the observer cannot be installed with existing grants, keyboard dispatch fails before input rather than requesting permission or bypassing auditing. Private delivery logs contain process/window/editor identifiers, counts and timing, without text or key values. Observed delivery is limited to the watched processes; it is not proof of whole-machine isolation. Pause persists across restarts.
