@@ -1,14 +1,12 @@
 # Claude Code integration
 
-Use the built app's `ocu setup claude` output as the MCP configuration. It prints a configuration block without replacing existing settings.
-
-For an installed CLI, the official stdio registration shape is:
+`ocu setup claude` (or **Connect** in the app) registers the server at user scope through Claude Code's own command:
 
 ```sh
-claude mcp add --transport stdio opencomputeruse -- /absolute/path/to/ocu mcp
+claude mcp add --scope user opencomputeruse -- /absolute/path/to/ocu mcp
 ```
 
-Use `claude mcp remove opencomputeruse` to remove that registration. Confirm the desired Claude scope before changing persistent settings. For isolated acceptance, prefer `--mcp-config` with a test configuration rather than changing user configuration.
+`ocu setup claude --remove` removes it. For isolated acceptance, prefer `--mcp-config` with a test configuration rather than changing user configuration.
 
 Source checked 2026-09-09: https://code.claude.com/docs/en/mcp . Locally installed CLI reports version 2.1.210; live tool acceptance is described below.
 

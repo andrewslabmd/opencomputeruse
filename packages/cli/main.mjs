@@ -5,10 +5,11 @@ import { saveImages } from './images.mjs';
 const [command = 'help', ...args] = process.argv.slice(2);
 if (command === 'mcp') { await import('../mcp/main.mjs'); }
 else if (command === 'help' || command === '--help') {
-  console.log('ocu status | permissions | apps | observe APP [--screenshot[=FILE]] | batch APP JSON | stop | resume | revoke CLIENT_ID | setup claude | --version\nBatch observes APP and acts within one exclusive connection. mcp serves a persistent agent connection.\n--screenshot attaches the app window image, saved to FILE (default: a private temporary file) and printed as its path.');
+  console.log('ocu status | permissions | apps | observe APP [--screenshot[=FILE]] | batch APP JSON | stop | resume | revoke CLIENT_ID | setup [claude | codex | cursor | opencode] [--remove] [--print] | --version\nBatch observes APP and acts within one exclusive connection. mcp serves a persistent agent connection.\n--screenshot attaches the app window image, saved to FILE (default: a private temporary file) and printed as its path.\nsetup connects coding agents to Open Computer Use; with no agent it shows each one\'s status.');
 } else if (command === '--version') console.log('0.1.0-dev');
-else if (command === 'setup' && args[0] === 'claude') {
-  console.log(JSON.stringify({ mcpServers: { opencomputeruse: { command: process.execPath, args: ['mcp'] } } }, null, 2));
+else if (command === 'setup') {
+  const { runSetup } = await import('./setup.mjs');
+  try { process.exitCode = await runSetup(args); } catch (error) { console.error(`error: ${error.message}`); process.exitCode = 1; }
 } else {
   const client = new Client();
   try {

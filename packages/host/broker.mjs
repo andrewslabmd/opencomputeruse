@@ -77,7 +77,7 @@ export class Broker {
         check();
         if (name === 'use_action_batch') throw failure('permissions_changed', 'Native permissions changed. Observe the target again before acting.');
       }
-      if (!permissions.find(p => p.name === 'Accessibility')?.isGranted) throw failure('permission_required', 'Enable Accessibility for OpenComputerUse Helper in macOS Settings');
+      if (!permissions.find(p => p.name === 'Accessibility')?.isGranted) throw failure('permission_required', 'Enable Accessibility for Open Computer Use Helper in macOS Settings');
     }
     await this.start(); check(); return this.request('tools/call', { name, arguments: args });
   }

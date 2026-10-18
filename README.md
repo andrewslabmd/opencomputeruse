@@ -46,29 +46,38 @@ cd opencomputeruse
 pnpm install --frozen-lockfile
 pnpm check
 pnpm build
-open -g "dist/OpenComputerUse Dev.app"
+open -g "dist/Open Computer Use.app"
 ```
 
-`pnpm build` produces `dist/OpenComputerUse Dev.app`, signed ad hoc by default.
+`pnpm build` produces `dist/Open Computer Use.app`, signed ad hoc by default.
 Set `OCU_SIGN_IDENTITY` to one of your signing identities to keep a stable
 identity across rebuilds. Ad-hoc builds may need their permissions granted
 again after each rebuild.
 
 Then, in the menu-bar app, use **Allow Accessibility…** and **Allow Screen
-Recording…** to grant both permissions to *OpenComputerUse Helper*, and
+Recording…** to grant both permissions to *Open Computer Use Helper*, and
 **Install CLI** to link `ocu` into `~/.local/bin`. `ocu permissions` shows the
 current state.
 
 ## Connect an agent
 
-Claude Code:
+In the menu-bar app, open **Settings… → Connect an Agent** and choose
+**Connect** next to each coding agent found on your Mac. From a terminal:
 
 ```sh
-claude mcp add --transport stdio opencomputeruse -- "$PWD/dist/OpenComputerUse Dev.app/Contents/MacOS/ocu" mcp
+ocu setup          # each agent's status; asks which to connect
+ocu setup codex    # connect one: claude, codex, cursor or opencode
+ocu setup cursor --remove
+ocu setup --print  # settings to add by hand to any other MCP client
 ```
 
-`ocu setup claude` prints an equivalent configuration block without changing
-any settings. Give the agent the operating guidance in
+Every agent runs the same stdio server, `ocu mcp`, from wherever Open Computer
+Use is installed. Claude Code and Codex are configured through their own `mcp
+add` commands (Claude Code at user scope); Cursor's `~/.cursor/mcp.json` and
+OpenCode's global `opencode.json` are edited in place, keeping other servers and
+comments, with the previous file saved as `*.ocu-backup`. An agent connected to
+another copy of the app shows **Update**. Restart an agent, or start a new
+session, after connecting it. Give the agent the operating guidance in
 [integrations/claude-code/operator.md](integrations/claude-code/operator.md).
 
 Tools: `computer_use_list_apps`, `computer_use_observe`,

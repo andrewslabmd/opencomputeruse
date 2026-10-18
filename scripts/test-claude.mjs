@@ -11,7 +11,7 @@ const fixture = spawn(resolve('work/ComputerUseFixture'), [resultPath], { stdio:
 try {
   await new Promise(r => setTimeout(r, 1800));
   const config = resolve('work/claude-test-mcp.json');
-  await writeFile(config, JSON.stringify({ mcpServers: { opencomputeruse: { command: resolve('dist/OpenComputerUse Dev.app/Contents/MacOS/ocu'), args: ['mcp'] } } }));
+  await writeFile(config, JSON.stringify({ mcpServers: { opencomputeruse: { command: resolve('dist/Open Computer Use.app/Contents/MacOS/ocu'), args: ['mcp'] } } }));
   const prompt = `Operate ONLY synthetic application PID:${fixture.pid} (ComputerUseFixture). Observe it. Click Begin Test, replace Fixture Input with exactly Standalone Claude acceptance, click Panel Action in its transient panel, then click Commit. Use observed coordinates and one batch if all controls are visible. The user explicitly authorized this synthetic test. Do not operate any other app. Release your workflow after finishing and report the result.`;
   const operator = await readFile('integrations/claude-code/operator.md', 'utf8');
   const output = await new Promise((res, rej) => {

@@ -3,12 +3,52 @@ import AppKit
 import Darwin
 import ServiceManagement
 
+/// A connected agent, as the panel and the window show it.
+struct Agent: Identifiable, Equatable {
+    let id: String
+    let name: String
+    /// The app it is working in, when it holds one.
+    let app: String?
+    /// Its cursor color slot, when it holds an app.
+    let slot: Int?
+    /// A call is in flight (acting) rather than thinking between calls.
+    let busy: Bool
+    var color: Color { slot.map { Color(nsColor: AgentCursorView.palette[$0 % AgentCursorView.palette.count]) } ?? .secondary }
+    var detail: String {
+        guard let app else { return "Connected" }
+        return busy ? "Working in \(app)" : "Thinking · \(app)"
+    }
+}
+
+/// A coding agent as `ocu setup --json` reports it.
+struct AgentSetup: Identifiable, Decodable, Equatable {
+    let id: String
+    let name: String
+    /// connected, outdated, available, not_installed or error.
+    let status: String
+    let message: String?
+}
+
 @MainActor
 final class HostModel: ObservableObject {
-    @Published var status = "Starting…"
+    static let shared = HostModel()
+
+    enum Health { case starting, ready, stopped, unavailable }
+    @Published var health = Health.starting
     @Published var detail = ""
     @Published var paused = false
-    @Published var clients: [[String: String]] = []
+    @Published var agents: [Agent] = []
+    /// Permission grants of the helper; nil until read.
+    @Published var accessibility: Bool?
+    @Published var screenRecording: Bool?
+    @Published var launchAtLogin = SMAppService.mainApp.status == .enabled
+    @Published var cliInstalled = false
+    /// Coding agents and whether each launches this copy of the app; nil until read.
+    @Published var agentSetups: [AgentSetup]?
+    /// The agent being connected or disconnected, and the last failure per agent.
+    @Published var agentSetupBusy: String?
+    @Published var agentSetupErrors: [String: String] = [:]
+    @Published var hostPID: Int32?
     @Published var showCursors = UserDefaults.standard.object(forKey: "showAgentCursors") as? Bool ?? true {
         didSet { UserDefaults.standard.set(showCursors, forKey: "showAgentCursors"); overlay.enabled = showCursors }
     }
@@ -21,35 +61,61 @@ final class HostModel: ObservableObject {
     private var host: Process?
     private var lock: Int32 = -1
     private var timer: Timer?
+    private var ticks = 0
     private var hostStarts: [Date] = []
     private let hostError = HostErrorTail()
-    let runtime = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/OpenComputerUse Dev")
+    let runtime = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/Open Computer Use")
     var binaries: URL { Bundle.main.bundleURL.appendingPathComponent("Contents/MacOS") }
     var resources: URL { Bundle.main.bundleURL.appendingPathComponent("Contents/Resources") }
+    var commands: URL { runtime.appendingPathComponent("helper-commands") }
+    var cliLink: URL { FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".local/bin/ocu") }
+    var version: String { Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "Unknown" }
+    /// What any MCP client runs: a stdio server named opencomputeruse.
+    var mcpCommand: String { "\"\(binaries.appendingPathComponent("ocu").path)\" mcp" }
+    var workingAgents: [Agent] { agents.filter { $0.app != nil } }
+    var permissionsMissing: Bool { accessibility == false || screenRecording == false }
 
-    init() { start() }
+    var statusText: String {
+        switch health {
+        case .starting: return "Starting…"
+        case .unavailable: return "Unavailable"
+        case .stopped: return "Stopped"
+        case .ready:
+            let working = workingAgents.count
+            if working > 0 { return working == 1 ? "1 agent working" : "\(working) agents working" }
+            return agents.isEmpty ? "Ready" : "Ready · \(agents.count) connected"
+        }
+    }
+    var statusColor: Color {
+        switch health {
+        case .ready: return .green
+        case .stopped: return .orange
+        case .starting: return .secondary
+        case .unavailable: return .red
+        }
+    }
+
+    private init() { start() }
     func start() {
         do {
             try FileManager.default.createDirectory(at: runtime, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
             lock = Darwin.open(runtime.appendingPathComponent("host.lock").path, O_CREAT | O_RDWR | O_CLOEXEC, 0o600)
-            guard lock >= 0, flock(lock, LOCK_EX | LOCK_NB) == 0 else { status = "Already running"; return }
-            let commands = runtime.appendingPathComponent("helper-commands")
+            guard lock >= 0, flock(lock, LOCK_EX | LOCK_NB) == 0 else { health = .unavailable; detail = "Another copy of Open Computer Use is already running."; return }
             try FileManager.default.createDirectory(at: commands, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
             // Remove only our own abandoned request/response files before the helper starts.
             for file in try FileManager.default.contentsOfDirectory(at: commands, includingPropertiesForKeys: nil) where file.lastPathComponent.hasPrefix("request-") || file.lastPathComponent.hasPrefix("response-") { try? FileManager.default.removeItem(at: file) }
             let native = Process()
-            native.executableURL = resources.appendingPathComponent("OpenComputerUse Helper.app/Contents/MacOS/ocu-helper")
+            native.executableURL = resources.appendingPathComponent("Open Computer Use Helper.app/Contents/MacOS/ocu-helper")
             native.arguments = ["--parent-pid", String(getpid()), "--command-directory", commands.path]
             native.standardOutput = FileHandle.nullDevice; native.standardError = FileHandle.nullDevice
             try native.run(); helper = native
             hostStarts = []; try launchHost()
             timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in Task { @MainActor in self?.refresh() } }
             overlay.enabled = showCursors; overlay.start()
-            status = "Ready"
-        } catch { status = "Unavailable"; detail = error.localizedDescription; helper?.terminate() }
+            refreshSetup()
+        } catch { health = .unavailable; detail = error.localizedDescription; helper?.terminate() }
     }
     func launchHost() throws {
-        let commands = runtime.appendingPathComponent("helper-commands")
         let engine = Process(); engine.executableURL = binaries.appendingPathComponent("ocu-host")
         var env = ProcessInfo.processInfo.environment
         env["OCU_RUNTIME_DIR"] = runtime.path
@@ -70,29 +136,62 @@ final class HostModel: ObservableObject {
     func restartHost() {
         hostStarts = hostStarts.filter { Date().timeIntervalSince($0) < 60 }
         let reason = hostError.lastLine
-        guard hostStarts.count < 5 else { status = "Unavailable"; detail = "The host keeps stopping\(reason.isEmpty ? "" : ": \(reason)"). Choose Restart Services."; return }
-        if let last = hostStarts.last, Date().timeIntervalSince(last) < pow(2, Double(hostStarts.count)) { status = "Starting…"; return }
-        do { try launchHost(); status = "Starting…" } catch { status = "Unavailable"; detail = error.localizedDescription }
+        guard hostStarts.count < 5 else { health = .unavailable; detail = "The host keeps stopping\(reason.isEmpty ? "" : ": \(reason)"). Choose Restart Services."; return }
+        if let last = hostStarts.last, Date().timeIntervalSince(last) < pow(2, Double(hostStarts.count)) { health = .starting; return }
+        do { try launchHost(); health = .starting } catch { health = .unavailable; detail = error.localizedDescription }
     }
     func refresh() {
-        guard helper?.isRunning == true else { status = "Unavailable"; return }
-        guard host?.isRunning == true else { overlay.clear(); setWorking([]); restartHost(); return }
+        ticks += 1
+        if ticks % 5 == 0 { refreshSetup() }
+        guard helper?.isRunning == true else { health = .unavailable; return }
+        guard host?.isRunning == true else { overlay.clear(); setWorking([]); hostPID = nil; restartHost(); return }
         guard let data = try? Data(contentsOf: runtime.appendingPathComponent("status.json")), let state = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return }
         paused = state["paused"] as? Bool ?? false
-        status = paused ? "Stopped" : ((state["busy"] as? Bool == true) ? "Working" : "Ready")
-        // Each agent works in at most one app at a time; show which.
-        var apps: [String: String] = [:], slots: [String: String] = [:]
+        health = paused ? .stopped : .ready
+        hostPID = (state["pid"] as? NSNumber)?.int32Value
+        // Each agent works in at most one app at a time.
+        var workflows: [String: (app: String, slot: Int?, busy: Bool)] = [:]
         for workflow in state["workflows"] as? [[String: Any]] ?? [] {
             guard let client = workflow["client"] as? String, let pid = (workflow["app_pid"] as? NSNumber)?.int32Value else { continue }
-            apps[client] = NSRunningApplication(processIdentifier: pid)?.localizedName ?? "PID \(pid)"
-            if let slot = (workflow["slot"] as? NSNumber)?.intValue { slots[client] = String(slot) }
+            workflows[client] = (NSRunningApplication(processIdentifier: pid)?.localizedName ?? "PID \(pid)",
+                (workflow["slot"] as? NSNumber)?.intValue, workflow["busy"] as? Bool ?? false)
         }
         // Working: any agent holds an app, thinking or acting.
-        setWorking((state["workflows"] as? [[String: Any]] ?? []).compactMap { ($0["slot"] as? NSNumber)?.intValue }.sorted())
-        clients = (state["clients"] as? [[String: Any]] ?? []).map {
-            let id = $0["id"] as? String ?? ""
-            return ["id": id, "name": $0["name"] as? String ?? "Client", "app": apps[id] ?? "", "slot": slots[id] ?? ""]
+        setWorking(workflows.values.compactMap(\.slot).sorted())
+        let next = (state["clients"] as? [[String: Any]] ?? []).compactMap { client -> Agent? in
+            guard let id = client["id"] as? String else { return nil }
+            let name = client["name"] as? String ?? "Agent"
+            // The app's own command-line connections are not agents.
+            if name == "CLI" { return nil }
+            let workflow = workflows[id]
+            return Agent(id: id, name: name, app: workflow?.app, slot: workflow?.slot, busy: workflow?.busy ?? false)
         }
+        if next != agents { agents = next }
+    }
+    /// Permissions, open at login and the command-line tool: things that change rarely.
+    func refreshSetup() {
+        launchAtLogin = SMAppService.mainApp.status == .enabled
+        cliInstalled = (try? FileManager.default.destinationOfSymbolicLink(atPath: cliLink.path)) == binaries.appendingPathComponent("ocu").path
+        Task {
+            guard let response = await helperRequest("permissionStatus"), let stdout = response["stdout"] as? String,
+                  let list = try? JSONSerialization.jsonObject(with: Data(stdout.utf8)) as? [[String: Any]] else { return }
+            let granted = { (name: String) in list.first { $0["name"] as? String == name }?["isGranted"] as? Bool }
+            accessibility = granted("Accessibility"); screenRecording = granted("Screen Recording")
+        }
+    }
+    /// A request to the signed helper through its private command directory.
+    func helperRequest(_ action: String) async -> [String: Any]? {
+        let id = UUID().uuidString
+        let request = commands.appendingPathComponent("request-\(id).json"), response = commands.appendingPathComponent("response-\(id).json")
+        guard let data = try? JSONSerialization.data(withJSONObject: ["id": id, "action": action]), (try? data.write(to: request, options: .atomic)) != nil else { return nil }
+        for _ in 0..<60 {
+            try? await Task.sleep(nanoseconds: 50_000_000)
+            if let data = try? Data(contentsOf: response), let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                try? FileManager.default.removeItem(at: response); return object
+            }
+        }
+        try? FileManager.default.removeItem(at: request)
+        return nil
     }
     /// Animates the menu-bar ripple while any agent works; several agents alternate colors per pulse.
     func setWorking(_ slots: [Int]) {
@@ -109,12 +208,15 @@ final class HostModel: ObservableObject {
         frame()
         animation = Timer.scheduledTimer(withTimeInterval: 1.0 / 20, repeats: true) { _ in MainActor.assumeIsolated { frame() } }
     }
+
+    // MARK: Actions
+    func stop() { command(["stop"]) }
+    func resume() { command(["resume"]) }
+    func disconnect(_ agent: Agent) { command(["revoke", agent.id]) }
     func command(_ args: [String]) {
         Task {
-            do {
-                let output = try await runCLI(args)
-                detail = output; refresh()
-            } catch { detail = error.localizedDescription }
+            do { detail = try await runCLI(args); refresh() }
+            catch { detail = error.localizedDescription }
         }
     }
     func runCLI(_ args: [String]) async throws -> String {
@@ -127,28 +229,54 @@ final class HostModel: ObservableObject {
             return String(decoding: data, as: UTF8.self)
         }.value
     }
-    func permission(_ action: String) {
+    /// Asks macOS for the permission on the helper's behalf (it shows its prompt or Settings).
+    func requestPermission(_ action: String) {
         guard ["accessibility", "screenRecording"].contains(action) else { return }
-        let directory = runtime.appendingPathComponent("helper-commands")
-        let id = UUID().uuidString
-        do { let data = try JSONSerialization.data(withJSONObject: ["id": id, "action": action]); try data.write(to: directory.appendingPathComponent("request-\(id).json"), options: .atomic); detail = "Complete the permission request in macOS Settings, then check permissions." }
-        catch { detail = error.localizedDescription }
+        Task { _ = await helperRequest(action); refreshSetup() }
+    }
+    func openPrivacySettings(_ pane: String) {
+        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?\(pane)") { NSWorkspace.shared.open(url) }
+    }
+    func copyMCPCommand() {
+        NSPasteboard.general.clearContents(); NSPasteboard.general.setString(mcpCommand, forType: .string)
+    }
+    /// Reads every agent's state through `ocu setup`, the same code the command line uses.
+    func refreshAgentSetups() {
+        Task {
+            struct Report: Decodable { let agents: [AgentSetup] }
+            guard let output = try? await runCLI(["setup", "--json"]),
+                  let report = try? JSONDecoder().decode(Report.self, from: Data(output.utf8)) else { return }
+            if report.agents != agentSetups { agentSetups = report.agents }
+        }
+    }
+    func setUpAgent(_ id: String, remove: Bool = false) {
+        agentSetupBusy = id; agentSetupErrors[id] = nil
+        Task {
+            let output = (try? await runCLI(["setup", id, "--json"] + (remove ? ["--remove"] : []))) ?? ""
+            if (try? JSONDecoder().decode(AgentSetup.self, from: Data(output.utf8))) == nil {
+                agentSetupErrors[id] = output.trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: "error: ", with: "")
+            }
+            agentSetupBusy = nil
+            refreshAgentSetups()
+        }
     }
     func installCLI() {
-        let directory = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".local/bin")
-        let link = directory.appendingPathComponent("ocu")
+        let directory = cliLink.deletingLastPathComponent()
         do {
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-            if FileManager.default.fileExists(atPath: link.path) || (try? FileManager.default.destinationOfSymbolicLink(atPath: link.path)) != nil {
-                guard (try? FileManager.default.destinationOfSymbolicLink(atPath: link.path)) == binaries.appendingPathComponent("ocu").path else { detail = "An unrelated ocu command exists; it was preserved."; return }
-            } else { try FileManager.default.createSymbolicLink(at: link, withDestinationURL: binaries.appendingPathComponent("ocu")) }
+            if FileManager.default.fileExists(atPath: cliLink.path) || (try? FileManager.default.destinationOfSymbolicLink(atPath: cliLink.path)) != nil {
+                guard (try? FileManager.default.destinationOfSymbolicLink(atPath: cliLink.path)) == binaries.appendingPathComponent("ocu").path else { detail = "An unrelated ocu command exists at ~/.local/bin/ocu; it was left alone."; return }
+            } else { try FileManager.default.createSymbolicLink(at: cliLink, withDestinationURL: binaries.appendingPathComponent("ocu")) }
             detail = "Installed ~/.local/bin/ocu. Add ~/.local/bin to PATH if needed."
         } catch { detail = error.localizedDescription }
+        refreshSetup()
     }
-    func login(_ enabled: Bool) {
-        do { if enabled { try SMAppService.mainApp.register() } else { try SMAppService.mainApp.unregister() }; detail = "Login setting updated." }
+    func setLaunchAtLogin(_ enabled: Bool) {
+        do { if enabled { try SMAppService.mainApp.register() } else { try SMAppService.mainApp.unregister() } }
         catch { detail = error.localizedDescription }
+        refreshSetup()
     }
+    func revealRuntime() { NSWorkspace.shared.activateFileViewerSelecting([runtime]) }
     func repair() {
         timer?.invalidate(); overlay.clear(); host?.terminate(); helper?.terminate()
         let children = [host, helper].compactMap { $0 }
@@ -176,44 +304,47 @@ final class HostModel: ObservableObject {
     }
 }
 
+/// Keeps running when the window closes, and opens the window when the app is
+/// launched again while running (from Spotlight, Finder or the Dock), which is
+/// the way in when the menu-bar icon is hidden by the notch or other items.
+final class AppDelegate: NSObject, NSApplicationDelegate {
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        MainActor.assumeIsolated { SettingsWindow.shared.show() }
+        return true
+    }
+}
+
 @main
 struct ComputerUseApp: App {
-    @StateObject private var model = HostModel()
+    @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
+    @StateObject private var model = HostModel.shared
     var body: some Scene {
+        // The one window, in the style of System Settings. Not opened at launch;
+        // the panel, a second launch of the app, or Settings… opens it.
+        Window("Open Computer Use", id: SettingsWindow.id) {
+            SettingsView(model: model, selection: SettingsWindow.shared.selection)
+        }
+        .defaultSize(width: 780, height: 600)
+        .defaultLaunchBehavior(.suppressed)
+
         MenuBarExtra {
-            VStack(alignment: .leading, spacing: 10) {
-                Text("OpenComputerUse · Development").font(.headline)
-                Text(model.status)
-                HStack { Button("Stop") { model.command(["stop"]) }; Button("Resume") { model.command(["resume"]) } }
-                Toggle("Show agent cursors", isOn: $model.showCursors)
-                Divider()
-                Button("Allow Accessibility…") { model.permission("accessibility") }
-                Button("Allow Screen Recording…") { model.permission("screenRecording") }
-                Button("Check Permissions") { model.command(["permissions"]) }
-                Button("Restart Services") { model.repair() }
-                Button("Install CLI") { model.installCLI() }
-                Button("Claude MCP Setup") { model.command(["setup", "claude"]) }
-                Menu("Launch at Login") { Button("Enable") { model.login(true) }; Button("Disable") { model.login(false) } }
-                ForEach(model.clients, id: \.self) { client in
-                    HStack {
-                        // The same color as this agent's on-screen cursor.
-                        if let slot = Int(client["slot"] ?? "") {
-                            Circle().fill(Color(nsColor: AgentCursorView.palette[slot % AgentCursorView.palette.count])).frame(width: 8, height: 8)
-                        }
-                        VStack(alignment: .leading) {
-                            Text(client["name"] ?? "Client")
-                            if let app = client["app"], !app.isEmpty { Text("Working in \(app)").font(.caption).foregroundStyle(.secondary) }
-                        }
-                        Spacer(); Button("Disconnect") { model.command(["revoke", client["id"] ?? ""]) }
-                    }
-                }
-                if !model.detail.isEmpty { ScrollView { Text(model.detail).font(.caption.monospaced()).textSelection(.enabled) }.frame(maxHeight: 150) }
-                Divider()
-                Button("Quit") { model.quit() }
-            }.padding().frame(width: 380)
+            MenuPanel(model: model)
         } label: {
-            Image(nsImage: model.menuBarImage)
-        }.menuBarExtraStyle(.window)
+            MenuBarLabel(image: model.menuBarImage)
+        }
+        .menuBarExtraStyle(.window)
+    }
+}
+
+/// The menu-bar icon. It is on screen from launch, so it also hands SwiftUI's
+/// window opener to AppKit code (the reopen handler, the panel's buttons).
+struct MenuBarLabel: View {
+    let image: NSImage
+    @Environment(\.openWindow) private var openWindow
+    var body: some View {
+        Image(nsImage: image)
+            .onAppear { SettingsWindow.shared.open = { openWindow(id: SettingsWindow.id) } }
     }
 }
 

@@ -19,7 +19,7 @@ Requirements: macOS 15 or later, Xcode command-line tools, Node.js and pnpm.
 ```sh
 pnpm install --frozen-lockfile
 pnpm check    # headless JavaScript contract tests and Swift tests
-pnpm build    # dist/OpenComputerUse Dev.app, signed ad hoc
+pnpm build    # dist/Open Computer Use.app, signed ad hoc
 ```
 
 `pnpm check` is safe to run anywhere and must pass for every pull request.

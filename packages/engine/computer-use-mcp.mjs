@@ -112,7 +112,7 @@ async function reportPermissionStatus(message) {
       toolError(
         message.id,
         "computer_use_permission_status_unavailable",
-        response.error || "OpenComputerUse Helper could not report its permissions.",
+        response.error || "Open Computer Use Helper could not report its permissions.",
         "use",
       );
       return;

@@ -2,7 +2,7 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 export const VERSION = 1;
 export const MAX_FRAME = 8 * 1024 * 1024;
-export const runtimeDirectory = () => process.env.OCU_RUNTIME_DIR || join(homedir(), 'Library', 'Application Support', 'OpenComputerUse Dev');
+export const runtimeDirectory = () => process.env.OCU_RUNTIME_DIR || join(homedir(), 'Library', 'Application Support', 'Open Computer Use');
 export const failure = (code, message) => Object.assign(new Error(message), { code });
 export function frameReader(onFrame, onError) {
   let buffer = '';

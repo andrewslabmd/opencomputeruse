@@ -437,7 +437,7 @@ private final class ComputerUseHelper {
     }
 
     private func permissionStatus(id: String) -> HelperResponse {
-        let helperName = "OpenComputerUse Helper"
+        let helperName = "Open Computer Use Helper"
         let permissions = [
             ComputerUsePermissionStatus(
                 name: "Screen Recording",
@@ -1985,7 +1985,7 @@ private final class ComputerUseHelper {
 private enum ComputerUseHelperMain {
     static func main() {
         guard let arguments = HelperArguments(Array(CommandLine.arguments.dropFirst())) else {
-            fputs("OpenComputerUse Helper received invalid launch arguments.\n", stderr)
+            fputs("Open Computer Use Helper received invalid launch arguments.\n", stderr)
             exit(64)
         }
 
@@ -1993,7 +1993,7 @@ private enum ComputerUseHelperMain {
             let helper = ComputerUseHelper(arguments: arguments)
             try helper.run()
         } catch {
-            fputs("OpenComputerUse Helper failed: \(error.localizedDescription)\n", stderr)
+            fputs("Open Computer Use Helper failed: \(error.localizedDescription)\n", stderr)
             exit(1)
         }
     }

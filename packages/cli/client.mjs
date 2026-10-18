@@ -2,7 +2,7 @@ import net from 'node:net';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { dirname, resolve } from 'node:path';
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { VERSION, frameReader, failure, runtimeDirectory } from '../protocol/index.mjs';
 const interrupted = () => failure('host_disconnected', 'The OpenComputerUse host connection closed during this request (the host may have restarted). It was not retried and an action may already have been performed; observe again before continuing.');
 const revoked = () => failure('revoked', 'This client was disconnected from the OpenComputerUse menu-bar app. Restart the agent\'s OpenComputerUse connection to use it again.');
@@ -65,7 +65,10 @@ export async function connectHost(client, name, { waitMs } = {}) {
     const app = resolve(dirname(process.execPath), '../..');
     const bundled = app.endsWith('.app');
     if (!bundled && !waitMs) throw error;
-    if (bundled) await new Promise((res, rej) => { const p = spawn('/usr/bin/open', ['-g', app]); p.on('error', rej); p.on('exit', c => c === 0 ? res() : rej(new Error('Host launch failed'))); });
+    // Launch the app only when it is not running: a running app restarts its own
+    // host, and opening it again would bring up its window.
+    const running = bundled && spawnSync('/usr/bin/pgrep', ['-f', `${app}/Contents/MacOS/OpenComputerUse$`]).status === 0;
+    if (bundled && !running) await new Promise((res, rej) => { const p = spawn('/usr/bin/open', ['-g', app]); p.on('error', rej); p.on('exit', c => c === 0 ? res() : rej(new Error('Host launch failed'))); });
     for (const deadline = Date.now() + (waitMs ?? 10_000); Date.now() < deadline;) {
       await new Promise(r => setTimeout(r, 250));
       try { return await client.connect(name); } catch { client.conn?.socket.destroy(); }

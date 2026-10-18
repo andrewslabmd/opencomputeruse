@@ -31,7 +31,7 @@ execFileSync('open', ['-g', '-n', app, '--args', statePath]);
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const state = async () => JSON.parse(await readFile(statePath, 'utf8'));
 const windows = () => JSON.parse(execFileSync(lister, { encoding: 'utf8' }));
-const ocuPid = Number(execFileSync('pgrep', ['-f', 'OpenComputerUse Dev.app/Contents/MacOS/OpenComputerUse$'], { encoding: 'utf8' }).trim().split('\n')[0]);
+const ocuPid = Number(execFileSync('pgrep', ['-f', 'Open Computer Use.app/Contents/MacOS/OpenComputerUse$'], { encoding: 'utf8' }).trim().split('\n')[0]);
 const cursors = async () => JSON.parse(await readFile(join(runtimeDirectory(), 'cursors.json'), 'utf8'));
 async function until(predicate, label) {
   const readyBy = Date.now() + 10000; let last; // Harness readiness only.
