@@ -40,7 +40,7 @@ struct MenuPanel: View {
             }
             Section("Agents") {
                 if model.agents.isEmpty {
-                    LabeledContent("No agents connected") {
+                    LabeledContent("No agent is controlling your computer") {
                         Button("Connect…") { SettingsWindow.shared.show(.connect) }
                     }
                 } else {

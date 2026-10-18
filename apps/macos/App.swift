@@ -83,7 +83,7 @@ final class HostModel: ObservableObject {
         case .ready:
             let working = workingAgents.count
             if working > 0 { return working == 1 ? "1 agent working" : "\(working) agents working" }
-            return agents.isEmpty ? "Ready" : "Ready · \(agents.count) connected"
+            return "Ready"
         }
     }
     var statusColor: Color {
@@ -161,8 +161,10 @@ final class HostModel: ObservableObject {
         let next = (state["clients"] as? [[String: Any]] ?? []).compactMap { client -> Agent? in
             guard let id = client["id"] as? String else { return nil }
             let name = client["name"] as? String ?? "Agent"
-            // The app's own command-line connections are not agents.
+            // Only agents in control (holding an app, working or thinking) are
+            // shown; an idle connection is not an agent at work.
             if name == "CLI" { return nil }
+            guard workflows[id] != nil else { return nil }
             let workflow = workflows[id]
             return Agent(id: id, name: name, app: workflow?.app, slot: workflow?.slot, busy: workflow?.busy ?? false)
         }

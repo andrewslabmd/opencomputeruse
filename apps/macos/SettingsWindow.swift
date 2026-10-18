@@ -133,7 +133,7 @@ private struct AgentsPane: View {
         Form {
             Section {
                 if model.agents.isEmpty {
-                    LabeledContent("No agents connected") { Button("Connect an Agent…") { SettingsWindow.shared.show(.connect) } }
+                    LabeledContent("No agent is controlling your computer") { Button("Connect an Agent…") { SettingsWindow.shared.show(.connect) } }
                 } else {
                     ForEach(model.agents) { agent in
                         LabeledContent {
