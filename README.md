@@ -120,7 +120,8 @@ Open Computer Use lets software operate your apps. Use it deliberately.
   permissions. Treat anything an agent can do through it as something you did.
 - **Where your data goes:** observations and screenshots go to the agent that
   asked for them, and from there usually to that agent's model provider.
-  Open Computer Use itself has no analytics and sends nothing to the network.
+  Open Computer Use itself has no analytics. The only thing it sends is a bug
+  report you agreed to share.
 - **Trust boundary:** the local host accepts clients that can read its token in
   your user account's private runtime directory. It does not protect against
   other software already running as your user.
