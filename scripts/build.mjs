@@ -34,8 +34,13 @@ await mkdir(mac, { recursive: true }); await mkdir(join(helper, 'Contents/MacOS'
 await copyFile(resolve(root, '.build/release/OpenComputerUse'), join(mac, 'OpenComputerUse'));
 await copyFile(resolve(root, '.build/release/ocu-helper'), join(helper, 'Contents/MacOS/ocu-helper'));
 await run('ditto', [resolve(root, '.build/artifacts/sparkle/Sparkle/Sparkle.xcframework/macos-arm64_x86_64/Sparkle.framework'), sparkle]);
+// OCU_BUN names another Bun (for example one rebuilt with a modified
+// JavaScriptCore, as BUN_RUNTIME_NOTICES.md describes). Compiling for the
+// host platform, it embeds itself as the runtime.
+const bun = process.env.OCU_BUN ? resolve(process.env.OCU_BUN) : resolve(root, 'node_modules/.bin/bun');
+const target = process.env.OCU_BUN ? [] : ['--target=bun-darwin-arm64'];
 for (const [name, source] of [['ocu', 'packages/cli/main.mjs'], ['ocu-host', 'packages/host/main.mjs'], ['ocu-engine', 'packages/engine/computer-use-mcp.mjs']]) {
-  await run(resolve(root, 'node_modules/.bin/bun'), ['build', '--compile', '--target=bun-darwin-arm64', source, '--outfile', join(mac, name)]);
+  await run(bun, ['build', '--compile', ...target, source, '--outfile', join(mac, name)]);
 }
 const updates = release ? `<key>SUFeedURL</key><string>${config.sparkle.feedUrl}</string><key>SUPublicEDKey</key><string>${config.sparkle.publicKey}</string><key>SUEnableAutomaticChecks</key><true/><key>SUScheduledCheckInterval</key><integer>86400</integer><key>SUAllowsAutomaticUpdates</key><false/><key>SUAutomaticallyUpdate</key><false/><key>SURequireSignedFeed</key><true/><key>SUVerifyUpdateBeforeExtraction</key><true/>` : '';
 function plist(name, executable, id, extra = '') { return `<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd"><plist version="1.0"><dict><key>CFBundleName</key><string>${name}</string><key>CFBundleDisplayName</key><string>${name}</string><key>CFBundleExecutable</key><string>${executable}</string><key>CFBundleIdentifier</key><string>${id}</string><key>CFBundlePackageType</key><string>APPL</string><key>CFBundleVersion</key><string>${build}</string><key>CFBundleShortVersionString</key><string>${version}</string><key>LSMinimumSystemVersion</key><string>15.0</string><key>CFBundleIconFile</key><string>OpenComputerUse</string><key>CFBundleIconName</key><string>OpenComputerUse</string><key>LSUIElement</key><true/><key>NSScreenCaptureUsageDescription</key><string>Capture the selected app for agent observations and your private preview.</string>${extra}</dict></plist>`; }
@@ -48,7 +53,7 @@ for (const destination of [resources, join(helper, 'Contents/Resources')]) {
   await mkdir(destination, { recursive: true });
   for (const name of ['Assets.car', 'OpenComputerUse.icns']) await copyFile(resolve(root, 'assets/icon/compiled', name), join(destination, name));
 }
-await copyFile(resolve(root, 'THIRD_PARTY_NOTICES.md'), join(resources, 'THIRD_PARTY_NOTICES.md'));
+for (const notices of ['THIRD_PARTY_NOTICES.md', 'BUN_RUNTIME_NOTICES.md']) await copyFile(resolve(root, notices), join(resources, notices));
 // Sign inside out: the Bun runtimes, Sparkle's parts, the helper, then the app.
 await run('xattr', ['-cr', app]);
 const sign = (path, ...extra) => run('codesign', ['--force', '--sign', identity, ...signing, ...extra, path]);
