@@ -13,10 +13,13 @@ struct Agent: Identifiable, Equatable {
     let slot: Int?
     /// A call is in flight (acting) rather than thinking between calls.
     let busy: Bool
+    /// Estimated tokens its calls have added to its context and written, this connection.
+    var tokens = 0
     var color: Color { slot.map { Color(nsColor: AgentCursorView.palette[$0 % AgentCursorView.palette.count]) } ?? .secondary }
     var detail: String {
-        guard let app else { return "Connected" }
-        return busy ? "Working in \(app)" : "Thinking · \(app)"
+        let usage = tokens > 0 ? " · ~\(tokens.formatted(.number.notation(.compactName))) tokens" : ""
+        guard let app else { return "Connected" + usage }
+        return (busy ? "Working in \(app)" : "Thinking · \(app)") + usage
     }
 }
 
@@ -166,7 +169,9 @@ final class HostModel: ObservableObject {
             if name == "CLI" { return nil }
             guard workflows[id] != nil else { return nil }
             let workflow = workflows[id]
-            return Agent(id: id, name: name, app: workflow?.app, slot: workflow?.slot, busy: workflow?.busy ?? false)
+            let usage = client["usage"] as? [String: Any]
+            let tokens = ["input_tokens", "output_tokens"].reduce(0) { $0 + ((usage?[$1] as? NSNumber)?.intValue ?? 0) }
+            return Agent(id: id, name: name, app: workflow?.app, slot: workflow?.slot, busy: workflow?.busy ?? false, tokens: tokens)
         }
         if next != agents { agents = next }
     }
@@ -232,9 +237,26 @@ final class HostModel: ObservableObject {
         }.value
     }
     /// Asks macOS for the permission on the helper's behalf (it shows its prompt or Settings).
+    /// macOS lists it under this app's name: the helper runs as this app's child.
     func requestPermission(_ action: String) {
         guard ["accessibility", "screenRecording"].contains(action) else { return }
         Task { _ = await helperRequest(action); refreshSetup() }
+    }
+    /// A switch that is on but does nothing belongs to an earlier copy of the app
+    /// (another build or location). Removing this app's entry and asking again
+    /// lists the current copy; the user then turns it on once.
+    func resetPermission(_ action: String) {
+        guard let service = ["accessibility": "Accessibility", "screenRecording": "ScreenCapture"][action], let id = Bundle.main.bundleIdentifier else { return }
+        Task {
+            _ = try? await Task.detached {
+                for bundle in [id, id + ".helper"] {
+                    let process = Process(); process.executableURL = URL(fileURLWithPath: "/usr/bin/tccutil")
+                    process.arguments = ["reset", service, bundle]; process.standardOutput = FileHandle.nullDevice; process.standardError = FileHandle.nullDevice
+                    try process.run(); process.waitUntilExit()
+                }
+            }.value
+            requestPermission(action)
+        }
     }
     func openPrivacySettings(_ pane: String) {
         if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?\(pane)") { NSWorkspace.shared.open(url) }

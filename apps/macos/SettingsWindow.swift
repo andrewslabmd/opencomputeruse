@@ -168,7 +168,7 @@ private struct PermissionsPane: View {
                 row("Accessibility", "Read and operate the controls of the apps agents use.", model.accessibility, request: "accessibility", pane: "Privacy_Accessibility")
                 row("Screen Recording", "Capture the windows of the app an agent asks to see.", model.screenRecording, request: "screenRecording", pane: "Privacy_ScreenCapture")
             } footer: {
-                Text("Both are granted to OpenComputerUse Helper. Agents never get your physical pointer or keyboard, and the app you're using stays in front.")
+                Text("In System Settings, turn on Open Computer Use. Already on and still not allowed? Choose Fix: it removes the old entry and asks again, then turn it on once more. Agents never get your physical pointer or keyboard, and the app you're using stays in front.")
                     .foregroundStyle(.secondary)
             }
         }
@@ -181,6 +181,8 @@ private struct PermissionsPane: View {
             case false?:
                 HStack {
                     Button("Allow…") { model.requestPermission(request) }
+                    Button("Fix") { model.resetPermission(request) }
+                        .help("Already on in System Settings? Removes the old entry and asks again.")
                     Button("Open Settings") { model.openPrivacySettings(pane) }
                 }
             case nil: ProgressView().controlSize(.small)

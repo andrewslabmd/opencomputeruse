@@ -437,7 +437,8 @@ private final class ComputerUseHelper {
     }
 
     private func permissionStatus(id: String) -> HelperResponse {
-        let helperName = "Open Computer Use Helper"
+        // The helper runs as the app's child, so macOS lists its grants under the app.
+        let helperName = "Open Computer Use"
         let permissions = [
             ComputerUsePermissionStatus(
                 name: "Screen Recording",

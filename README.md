@@ -32,6 +32,10 @@ name and app identifiers may still change.
   covers other apps. Turn it off with **Show agent cursors** in the menu bar.
 - **Shows when an agent is in control:** while any agent holds an app, the
   menu-bar icon's ripples turn that agent's color and pulse.
+- **Estimates token use:** the menu bar shows roughly how many tokens each
+  agent's observations, screenshots and actions have cost it, and
+  `ocu status` reports the counts. These cover only Open Computer Use's part
+  of the conversation, not the agent's whole bill.
 - **Stop** in the menu bar stops every agent; nothing resumes until you choose
   Resume.
 
@@ -49,13 +53,14 @@ pnpm build
 open -g "dist/Open Computer Use.app"
 ```
 
-`pnpm build` produces `dist/Open Computer Use.app`, signed ad hoc by default.
-Set `OCU_SIGN_IDENTITY` to one of your signing identities to keep a stable
-identity across rebuilds. Ad-hoc builds may need their permissions granted
-again after each rebuild.
+`pnpm build` produces `dist/Open Computer Use.app`, signed with your Apple
+Development certificate when the Mac has one, so permissions survive rebuilds.
+Set `OCU_SIGN_IDENTITY` to choose another identity. Without either it is
+signed ad hoc, and macOS asks for permissions again after each rebuild.
 
 Then, in the menu-bar app, use **Allow Accessibility…** and **Allow Screen
-Recording…** to grant both permissions to *Open Computer Use Helper*, and
+Recording…** and turn on *Open Computer Use* in both lists (if it is already on
+but still not allowed, choose **Fix** in Settings → Permissions), and
 **Install CLI** to link `ocu` into `~/.local/bin`. `ocu permissions` shows the
 current state.
 

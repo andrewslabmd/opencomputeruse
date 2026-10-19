@@ -1,4 +1,4 @@
-import { spawn } from 'node:child_process';
+import { spawn, execFileSync } from 'node:child_process';
 import { mkdir, copyFile, writeFile, readFile, rm } from 'node:fs/promises';
 import { resolve, join } from 'node:path';
 // `pnpm build` makes the development app (ad hoc or OCU_SIGN_IDENTITY, `.dev`
@@ -15,7 +15,11 @@ const [major, minor, patch] = version.split(/[.-]/).map(Number);
 if ([minor, patch].some(n => n > 99)) throw new Error('Minor and patch versions above 99 need a new build-number scheme.');
 const build = String(major * 10000 + minor * 100 + patch);
 const id = release ? config.bundleId : `${config.bundleId}.dev`;
-const identity = release ? config.signingIdentity : (process.env.OCU_SIGN_IDENTITY || '-');
+// macOS ties permissions to the signature. Ad hoc changes with every build, so
+// a development build signs with the Mac's Apple Development certificate when
+// there is one and keeps its permissions across rebuilds.
+const identity = release ? config.signingIdentity : (process.env.OCU_SIGN_IDENTITY || developmentIdentity() || '-');
+if (!release) console.log(identity === '-' ? 'Signing ad hoc: macOS permissions must be granted again after each build.' : `Signing with Apple Development certificate ${identity}`);
 const signing = release ? ['--options', 'runtime', '--timestamp'] : [];
 
 const app = resolve(root, release ? 'dist/release/Open Computer Use.app' : 'dist/Open Computer Use.app');
@@ -61,3 +65,7 @@ await run('codesign', ['--verify', '--deep', '--strict', app]);
 console.log(release
   ? `Release app ${version} (${build}): ${app}. Signed, not notarized; scripts/release.mjs notarizes it.`
   : `Development artifact: ${app}. Not notarized; native acceptance remains separate.`);
+function developmentIdentity() {
+  // By fingerprint: codesign can miss a certificate whose name has accents.
+  try { return execFileSync('security', ['find-identity', '-v', '-p', 'codesigning'], { encoding: 'utf8' }).match(/([0-9A-F]{40}) "Apple Development: /)?.[1]; } catch { return undefined; }
+}

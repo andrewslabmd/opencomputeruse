@@ -6,6 +6,7 @@ import { VERSION, frameReader, failure } from '../protocol/index.mjs';
 import Ajv from 'ajv';
 import { tools } from '../protocol/tools.mjs';
 import { Client } from '../cli/client.mjs';
+import { emptyUsage, addUsage, callUsage } from './usage.mjs';
 const ajv = new Ajv({ strict: false });
 const validators = new Map(tools.map(tool => [tool.name, ajv.compile(tool.inputSchema)]));
 
@@ -19,6 +20,8 @@ export class Host {
     // Read-only requests (permissions, app list, target resolution) never start an engine.
     this.reader = this.createBroker();
     this.clients = new Map(); this.workflows = new Map(); this.stopping = false; this.paused = false;
+    // Estimated tokens across every connection since this host started.
+    this.usage = emptyUsage();
   }
   get inflight() { return [...this.workflows.values()].some(w => w.inflight); }
   // The most recently active workflow that holds an app (the menu-bar preview follows it).
@@ -111,7 +114,7 @@ export class Host {
     await stopProcess(pid);
   }
   connect(socket) {
-    const id = randomUUID(); const client = { id, socket, authenticated: false };
+    const id = randomUUID(); const client = { id, socket, authenticated: false, usage: emptyUsage() };
     this.clients.set(id, client); socket.setEncoding('utf8');
     const authTimer = setTimeout(() => { if (!client.authenticated) socket.destroy(); }, 5000);
     socket.on('error', () => {});
@@ -145,7 +148,7 @@ export class Host {
       case 'cancel': return this.cancel(client.id);
       case 'release': return this.release(client.id);
       case 'tools/list': return { tools };
-      case 'tools/call': return this.call(client, message.params || {});
+      case 'tools/call': return this.track(client, message.params || {});
       default: throw failure('unknown_method', 'Unknown host method');
     }
   }
@@ -154,7 +157,20 @@ export class Host {
     const cleanupError = [...this.workflows.values()].find(w => w.cleanupError)?.cleanupError;
     return { version: VERSION, pid: process.pid, parent_pid: this.parentPid, ...(this.closing ? { closing: true } : {}), ...(this.parentPid && process.ppid !== this.parentPid ? { orphaned: true } : {}), paused: this.paused, busy: this.inflight, stopping: this.stopping || [...this.workflows.values()].some(w => w.stopping), owner: this.owner, ...(cleanupError ? { cleanup_error: cleanupError } : {}),
       workflows: claimed.map(w => ({ client: w.id, app_pid: w.pid, slot: w.slot, busy: w.inflight })),
-      clients: [...this.clients.values()].filter(c => c.authenticated).map(c => ({ id: c.id, name: c.name, ownsExecution: claimed.some(w => w.id === c.id) })) };
+      usage: { ...this.usage },
+      clients: [...this.clients.values()].filter(c => c.authenticated).map(c => ({ id: c.id, name: c.name, ownsExecution: claimed.some(w => w.id === c.id), usage: { ...c.usage } })) };
+  }
+  // Counts each tool call's estimated tokens, failed calls included: the agent
+  // reads their error text too.
+  async track(client, params) {
+    let result, error;
+    try { result = await this.call(client, params); return result; }
+    catch (caught) { error = caught; throw caught; }
+    finally {
+      const usage = callUsage(params.arguments, result, error);
+      addUsage(client.usage, usage); addUsage(this.usage, usage);
+      void this.publish().catch(() => {});
+    }
   }
   async restorePause() {
     for (const name of ['control-state.json', 'status.json']) {

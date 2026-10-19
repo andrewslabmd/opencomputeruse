@@ -212,3 +212,11 @@ test('each agent cursor is published for the window it acts in and cleared when 
   assert.deepEqual(await read(), []);
   assert.ok(brokers.length >= 3);
 });
+test('status reports each connection\'s estimated tokens, failed calls included', async t => {
+  const { a, b } = await fixture(t); await observe(a);
+  await assert.rejects(observe(b), { code: 'busy' });
+  const status = await a.request('status'), usage = name => status.clients.find(c => c.name === name).usage;
+  assert.equal(usage('a').calls, 1); assert.equal(usage('b').calls, 1);
+  assert.ok(usage('a').input_tokens > 0 && usage('a').output_tokens > 0);
+  assert.equal(status.usage.calls, 2);
+});
