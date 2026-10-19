@@ -80,6 +80,7 @@ private struct AgentLine: View {
 
 private struct OverviewPane: View {
     @ObservedObject var model: HostModel
+    @ObservedObject private var updater = Updater.shared
     var body: some View {
         Form {
             Section {
@@ -121,6 +122,12 @@ private struct OverviewPane: View {
             Section("Preferences") {
                 Toggle("Show agent cursors", isOn: $model.showCursors)
                 Toggle("Open at login", isOn: Binding(get: { model.launchAtLogin }, set: { model.setLaunchAtLogin($0) }))
+            }
+            if updater.isConfigured {
+                Section("Updates") {
+                    Toggle("Check for updates automatically", isOn: Binding(get: { updater.automaticChecks }, set: { updater.setAutomaticChecks($0) }))
+                    LabeledContent("Version \(model.version)") { Button("Check for Updates…") { updater.check() } }
+                }
             }
         }
         .formStyle(.grouped).navigationTitle("Overview")

@@ -7,3 +7,6 @@ work/
 .env*
 # Private working journal, kept locally only
 JOURNAL.md
+
+# Release artifacts, prepared locally
+release-artifacts/

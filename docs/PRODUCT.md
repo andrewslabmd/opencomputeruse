@@ -8,6 +8,6 @@ Background drag uses adjustable accessibility controls or window-bound pointer i
 
 Parity target (decided 2026-10-16): Codex's computer use, not the rest of the Codex app. The agent cursor overlay with a target-window highlight, shown only above the target window rather than over unrelated apps, was added on 2026-10-17. Later, low priority: working while the Mac is locked. Out of scope: browser use (Codex's Chrome extension), record and replay, and appshots (a Codex app feature: a user-attached screenshot).
 
-The source is open under the Apache License 2.0. The final name, signed-build distribution and update terms remain undecided.
+The source is open under the Apache License 2.0. Signed builds are free: a notarized disk image on GitHub Releases that updates itself with Sparkle after the user agrees (decided 2026-10-19; `docs/RELEASE.md`).
 
 Prose writes the name as Open Computer Use (decided 2026-10-17). Code, paths, bundle and app names, and identifiers keep `OpenComputerUse` and `opencomputeruse`.

@@ -9,7 +9,9 @@
     "test": "node --test tests/contract/*.test.mjs",
     "build": "node scripts/build.mjs",
     "check": "node scripts/check.mjs",
-    "build:icon": "node scripts/build-icon.mjs"
+    "build:icon": "node scripts/build-icon.mjs",
+    "release:prepare": "node scripts/release.mjs prepare",
+    "release:publish": "node scripts/release.mjs publish"
   },
   "devDependencies": {
     "bun": "1.3.10",

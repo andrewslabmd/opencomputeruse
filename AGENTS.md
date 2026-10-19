@@ -7,6 +7,7 @@
 - Privacy and authorization: `docs/POLICIES.md`
 - UI: `DESIGN.md`
 - Build and checks: `README.md`
+- Release: `docs/RELEASE.md`
 - Remaining work: `docs/plans/implementation.md`
 - Working journal: `JOURNAL.md`, kept only on the maintainer's Mac and ignored by Git. Record work and verification there, never in public files.
 

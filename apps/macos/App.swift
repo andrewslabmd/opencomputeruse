@@ -95,7 +95,7 @@ final class HostModel: ObservableObject {
         }
     }
 
-    private init() { start() }
+    private init() { _ = Updater.shared; start() }
     func start() {
         do {
             try FileManager.default.createDirectory(at: runtime, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])

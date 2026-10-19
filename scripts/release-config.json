@@ -1,0 +1,12 @@
+{
+  "bundleId": "com.andrewslabmd.opencomputeruse",
+  "signingIdentity": "Developer ID Application: MedHue Labs LLC (PGD5DTY3CY)",
+  "teamId": "PGD5DTY3CY",
+  "notaryProfile": "medhuelabs-notary",
+  "repository": "andrewslabmd/opencomputeruse",
+  "sparkle": {
+    "account": "opencomputeruse",
+    "publicKey": "g/ULpJI2zK6gy+NM5rNLh8P8f8nL0vIukp1uSO+Mf4g=",
+    "feedUrl": "https://github.com/andrewslabmd/opencomputeruse/releases/latest/download/appcast.xml"
+  }
+}
