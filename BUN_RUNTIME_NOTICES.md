@@ -14,8 +14,6 @@ Some components are under licenses that require their source code to be availabl
 
 Bun's own source at the shipped version: https://github.com/oven-sh/bun/tree/bun-v1.3.10. Open Computer Use's source: https://github.com/andrewslabmd/opencomputeruse.
 
-**Written offer.** For at least three years after we last distribute a release containing these components, Mario A Flores (Andrews Lab) will give anyone who asks a complete, machine-readable copy of the corresponding source code of the LGPL- and MPL-licensed components above, for no more than the cost of physically distributing it. Write to hello@andrewslabmd.com.
-
 **Relinking with a modified library.** The LGPL lets you run Open Computer Use with your own version of these libraries:
 
 1. Build Bun 1.3.10 from its source with your modified WebKit or TinyCC (Bun's `LICENSE.md` and build documentation describe how: set its WebKit to your copy, then build).

@@ -46,7 +46,7 @@ are built into every release, so changing either strands installed copies.
 
 - [x] Bundled dependency notices: the Bun runtime inside `ocu`, `ocu-host` and
       `ocu-engine` and its transitive licenses are inventoried in
-      `BUN_RUNTIME_NOTICES.md`, with the LGPL/MPL source offer and relinking
+      `BUN_RUNTIME_NOTICES.md`, with links to the LGPL/MPL source and relinking
       steps (`OCU_BUN`). Upgrading Bun means redoing that inventory.
 - [ ] Release identity and permission persistence: a release build keeps its
       Accessibility and Screen Recording grants across an update installed by
