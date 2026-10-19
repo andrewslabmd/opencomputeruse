@@ -170,10 +170,14 @@ security-warning bypasses.
 
 `observe` and `permissions` do not mutate the target.
 
-If a tool did not behave as its description says and you had to work around it
-(or could not), call `report_issue` once for that problem, without application
-content or personal data, then continue the task. It sends nothing: give the user
-the returned link to review and submit.
+If you or the user flag a bug in Open Computer Use, call `report_issue` once
+for that problem, without application content or personal data. It saves locally
+and returns a preview. Ask once: "Share this bug report with the Open Computer Use
+developers? It contains the summary, versions and names of recent tool calls,
+and nothing from your apps or files." Only on yes, call `report_issue` with
+`{report_id, share: true}` to send to the maintainers' private inbox for triage.
+On no, do not ask again. Continue the task. GitHub issue templates remain for
+people who want to file publicly.
 
 Return a concise outcome to the primary agent: what completed, the relevant
 resulting state, or the exact blocker or confirmation required. Do not copy full

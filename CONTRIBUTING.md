@@ -6,8 +6,9 @@ Thanks for your interest in Open Computer Use.
 
 - Open an issue to discuss larger changes before writing them.
 - Security problems go through [SECURITY.md](SECURITY.md), not public issues.
-- Bugs go in this repository's public issues. Agents file them with the
-  `report_issue` tool, which prefills the bug form for a person to submit.
+- `report_issue` saves bugs locally and asks the user once before sharing with
+  the maintainers' private inbox for triage. GitHub issue templates remain for
+  people who want to file publicly.
 - This project follows the [code of conduct](CODE_OF_CONDUCT.md).
 - Read [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and
   [docs/POLICIES.md](docs/POLICIES.md) first. Changes must keep actions in the

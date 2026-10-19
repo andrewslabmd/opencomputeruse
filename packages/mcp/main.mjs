@@ -8,6 +8,8 @@ let initialized = false;
 const agent = { name: '', version: '' };
 const recent = new RecentCalls();
 const reported = new Map();
+// MCP requests may overlap: serialize report writes and sends in this session.
+let reporting = Promise.resolve();
 const connect = () => client.ensure();
 const send = value => process.stdout.write(JSON.stringify(value) + '\n');
 const extraTools = [
@@ -36,11 +38,19 @@ async function handle(message) {
         if (!initialized) throw new Error('Initialize first');
         const name = message.params?.name;
         if (name === 'report_issue') {
-          // Local only, without the host: it may be the part that failed. One
-          // report per summary per session.
-          const args = message.params.arguments || {}; const key = typeof args.summary === 'string' ? args.summary.trim().toLowerCase() : '';
-          const report = reported.get(key) || await reportIssue(args, { client: agent, recent });
-          result = { content: [{ type: 'text', text: JSON.stringify(reportResult(report, { repeated: reported.has(key) })) }] }; reported.set(key, report);
+          // Without the host: it may be the part that failed. One report per
+          // summary per session; sending requires the explicit second call.
+          const args = message.params.arguments || {};
+          const operation = reporting.then(async () => {
+            if (args.report_id !== undefined || args.share !== undefined) return reportIssue(args);
+            const key = typeof args.summary === 'string' ? args.summary.trim().toLowerCase() : '';
+            const report = reported.get(key) || await reportIssue(args, { client: agent, recent });
+            const output = reportResult(report, { repeated: reported.has(key) });
+            reported.set(key, report);
+            return output;
+          });
+          reporting = operation.catch(() => {});
+          result = { content: [{ type: 'text', text: JSON.stringify(await operation) }] };
           break;
         }
         try {

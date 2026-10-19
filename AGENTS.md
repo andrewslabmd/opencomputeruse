@@ -9,10 +9,9 @@
 - Build and checks: `README.md`
 - Release: `docs/RELEASE.md`
 - Remaining work: `docs/plans/implementation.md`
-- Reports: bugs go to this repository's public issues (open source).
-  Connected: the `report_issue` MCP tool (agents; saves locally and returns a
-  prefilled bug-form link a person submits) and the GitHub issue templates. No
-  in-app form or error tracking.
+- Reports: `report_issue` saves locally, asks the user once, and sends only
+  after yes to the maintainers' private inbox for triage. GitHub issue templates
+  remain for people who want to file publicly. No in-app form or error tracking.
 - Working journal: `JOURNAL.md`, kept only on the maintainer's Mac and ignored by Git. Record work and verification there, never in public files.
 
 ## Rules
