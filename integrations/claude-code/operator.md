@@ -64,14 +64,22 @@ for click, type, scroll, right_click and select_text. It retains the exact contr
 and window even when another window covers it. Alternatively use `at` for a
 spatial action; never supply both. Ids resolve against the latest observation/result;
 the same control keeps its id while it exists, and a disappeared receiver is
-rejected before dispatch. Snapshots are compact: a node without `frame` shares its
-parent's frame (`frame: null` means none); `selected` appears only when true;
+rejected before dispatch. Snapshots are compact: `frame` is `[x, y, width, height]`
+and a node without `frame` shares its parent's frame (`frame: null` means none);
+inside a web area, a `url` on the page's own origin is a path relative to the web
+area's `url`;
+unnamed layout groups with no text or state are not shown (a lone child takes its
+place), and a text that only repeats its parent's name is folded into the parent;
+clicking what is shown still reaches them. `selected` appears only when true;
 `offscreen` covers the node and everything inside it. A subtree that is entirely
 offscreen is one line with its id, role and all of its text: search that text,
 then use `scroll_to_visible` on the id to get the full controls.
 Action results send only what changed since the last snapshot you received
-(`changes_since`): a window or node marked `unchanged: true` is identical to your
-previous copy under the same id. Use `use_observe` when you need everything again.
+(`changes_since`): a window marked `unchanged: true`, or a bare id string in place
+of a node, is identical to your previous copy under the same id. Action results
+state the outcome (`status`, `code`, `effect`, `observed_changes`, where moved or
+resized elements are one count per window because the snapshot has their frames); pass
+`diagnostics: true` only to see OCU's dispatch and delivery records. Use `use_observe` when you need everything again.
 Working in the user's frontmost app is fine, and the user may bring the app you
 are working in forward to watch; keep working. If an app jumps to the front as a
 reaction to your keystroke or click, OCU puts the user's app back and reports

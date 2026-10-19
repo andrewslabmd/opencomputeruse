@@ -23,7 +23,7 @@ try {
   const nodes = [];
   function walk(node) { nodes.push(node); for (const child of node.children || []) walk(child); }
   for (const window of state.surface.windows) walk(window.tree);
-  function point(name) { const node = nodes.find(n => n.name === name); assert.ok(node?.frame, `Missing ${name}`); return { x: node.frame.x + node.frame.width / 2, y: node.frame.y + node.frame.height / 2 }; }
+  function point(name) { const node = nodes.find(n => n.name === name); assert.ok(node?.frame, `Missing ${name}`); return { x: node.frame[0] + node.frame[2] / 2, y: node.frame[1] + node.frame[3] / 2 }; }
   const actions = [
     { kind: 'click', at: point('Begin Test') },
     { kind: 'type', at: point('Fixture Input'), text: 'Standalone native acceptance', replace: true },

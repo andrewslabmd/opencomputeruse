@@ -45,7 +45,7 @@ function agent(name) {
     observe: () => self.call('use_observe', { app_target: `PID:${self.pid}` }),
     async act(build) {
       const r = await self.observe();
-      const result = (await self.call('use_action_batch', { actions: [build(r)] })).actions[0];
+      const result = (await self.call('use_action_batch', { actions: [build(r)], diagnostics: true })).actions[0];
       assert.ok(!['failed'].includes(result.status), `${name}: ${JSON.stringify(result)}`);
       assert.notEqual(result.code, 'input_isolation_violation');
       for (const receipt of result.input_delivery ?? []) {

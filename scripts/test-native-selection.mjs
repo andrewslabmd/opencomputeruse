@@ -23,7 +23,7 @@ const decode = r => {
   return parse(r.content.find(v => v.type === 'text').text);
 };
 const flat = n => [n, ...(n.children ?? []).flatMap(flat)];
-const point = n => ({ x: n.frame.x + n.frame.width / 2, y: n.frame.y + n.frame.height / 2 });
+const point = n => ({ x: n.frame[0] + n.frame[2] / 2, y: n.frame[1] + n.frame[3] / 2 });
 const osa = source => JSON.parse(execFileSync('/usr/bin/osascript', ['-l', 'JavaScript', '-e', source], { encoding: 'utf8' }));
 async function observe(app, windowTitle) {
   return decode(await client.request('tools/call', { name: 'use_observe', arguments: { app_target: app, window_title: windowTitle } })).snapshot;

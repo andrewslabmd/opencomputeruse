@@ -17,7 +17,7 @@ name and app identifiers may still change.
 ## What it does
 
 - **Observes** an app through macOS Accessibility: windows, controls, text,
-  selection and style, as compact YAML, plus an optional screenshot of the
+  selection and style, as compact JSON, plus an optional screenshot of the
   app's own windows.
 - **Acts in the background** on exact observed controls: click, double/triple
   and modifier clicks, right click, type, select text, scroll, drag, long

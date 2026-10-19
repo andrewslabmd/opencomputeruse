@@ -40,7 +40,7 @@ async function call(name, args) {
 }
 let pid;
 const observe = () => call('use_observe', { app_target: `PID:${pid}` });
-const act = action => call('use_action_batch', { actions: [action] }).then(r => r.actions[0]);
+const act = action => call('use_action_batch', { actions: [action], diagnostics: true }).then(r => r.actions[0]);
 const pass = label => { cases.push(label); console.log(`${label}: passed`); };
 const row = (r, label) => nodes(r).find(n => n.role === 'AXRow' && texts(n).includes(label));
 try {

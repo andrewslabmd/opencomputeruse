@@ -56,6 +56,12 @@ test('window-bound pointer clicks are confirmed against the fresh window, includ
   assert.equal(silent.status,'unconfirmed');assert.equal(silent.code,'pointer_effect_unobserved');assert.ok(batchStops(silent));
   const changed=normalizeAirpointSnapshot(raw([{id:'menu',role:'AXMenu',name:'Item',frame:{x:0,y:50,w:40,h:40}}]));
   const seen={...nativeActionAudit(before,native)};confirmWebPress(seen,changed);assert.equal(seen.status,'sent');assert.ok(!batchStops(seen));
+  // A click that opens its own window (Chrome's profile bubble) changed the app,
+  // although the clicked window itself did not change.
+  const bubble=normalizeAirpointSnapshot({...raw([]),surface:{...raw([]).surface,windows:[...raw([]).surface.windows,
+    {windowID:9,frame:{x:60,y:10,w:30,h:60},tree:{id:'bubble',role:'AXWindow',frame:{x:60,y:10,w:30,h:60},children:[{id:'item',role:'AXButton',name:'Other profile',frame:{x:60,y:20,w:30,h:10}}]}}]}});
+  const opened={...nativeActionAudit(before,native)};confirmWebPress(opened,bubble);assert.equal(opened.status,'sent');assert.ok(!batchStops(opened));
+  const closed={...nativeActionAudit(bubble,native)};confirmWebPress(closed,before);assert.equal(closed.status,'sent');
 });
 
 test('pointer drags, long presses and surface keystrokes are dispatch receipts confirmed against the fresh window',()=>{
@@ -89,19 +95,71 @@ test('agent encoding keeps every text while collapsing fully offscreen subtrees'
   const visible = group.children[1];
   assert.equal(visible.selected, true);
   assert.deepEqual(visible.children[0], { id: 'ax_9', role: 'AXTextField', value: 'visible.txt' });
-  assert.deepEqual(visible.children[1], { id: 'ax_10', role: 'AXGroup', frame: null });
+  assert.equal(visible.children.length, 1, 'an empty unnamed group is not shown');
   // Internal trees keep every field and every descendant for targeting and diffs.
   assert.ok(snapshot.elementReferences.get(`${snapshot.generation}/ax_5`));
+  assert.ok(snapshot.elementReferences.get(`${snapshot.generation}/ax_10`));
   assert.equal(resolveAirpointElement(snapshot, 'ax_3').code, 'target_offscreen');
   assert.equal(resolveAirpointElement(snapshot, 'ax_3', { allowOffscreen: true }).elementID, 'ax_3');
   // Scrolling an offscreen row into view is a frame/offscreen change, not new UI.
   const scrolledRaw = JSON.parse(JSON.stringify(raw).replaceAll('"offscreen":true', '"offscreen":false').replaceAll('"y":500', '"y":40'));
   const changes = observedStateChanges(snapshot, normalizeAirpointSnapshot(scrolledRaw));
   assert.equal(changes.items.some(c => c.property === 'named_elements'), false);
-  assert.ok(changes.items.some(c => c.property === 'frame'));
+  // Moved elements are counted per window; the snapshot carries their frames.
+  assert.deepEqual(changes.items.filter(c => c.property === 'frame'), [{ window_id: 1, property: 'frame', elements: changes.count - changes.items.filter(c => c.property !== 'frame').length }]);
+  assert.ok(changes.count > changes.items.length);
   // A subtree with any onscreen descendant is never collapsed.
   const partial = JSON.parse(JSON.stringify(raw)); delete partial.surface.windows[0].tree.children[0].children[0].children[1].offscreen;
   assert.ok(normalizeAirpointSnapshot(partial).model.surface.windows[0].tree.children[0].children[0].children);
+});
+
+test('agent encoding hides bare layout groups and repeated text, never content', () => {
+  const f = (x, y, w, h) => ({ x, y, w, h });
+  const raw = { app: { name: 'Safari', pid: 3 }, capturedAt: 1, nodeCount: 14, surface: { frame: f(0, 0, 900, 700), windows: [{ windowID: 1, frame: f(0, 0, 900, 700),
+    tree: { id: 'w', role: 'AXWindow', frame: f(0, 0, 900, 700), children: [
+      { id: 'e1', role: 'AXGroup', subrole: 'AXEmptyGroup', frame: f(0, 90, 900, 10) },
+      { id: 'e2', role: 'AXGroup', subrole: 'AXEmptyGroup', frame: f(0, 90, 900, 10) },
+      { id: 'wrap1', role: 'AXGroup', frame: f(10, 100, 200, 40), children: [
+        { id: 'wrap2', role: 'AXGroup', frame: f(10, 100, 200, 40), children: [
+          { id: 'link', role: 'AXLink', name: 'Billing', url: 'https://x/billing', frame: f(10, 100, 200, 40), children: [
+            { id: 'linktext', role: 'AXStaticText', name: 'Billing', frame: f(12, 110, 60, 18) }] }] }] },
+      { id: 'h', role: 'AXHeading', name: 'Project', frame: f(10, 150, 300, 30), children: [
+        { id: 'htext', role: 'AXStaticText', name: 'Project', frame: f(10, 150, 300, 30) },
+        { id: 'hother', role: 'AXStaticText', name: 'beta', frame: f(200, 150, 40, 30) }] },
+      { id: 'row', role: 'AXGroup', frame: f(10, 200, 400, 30), children: [
+        { id: 'label', role: 'AXStaticText', name: 'Name', frame: f(10, 200, 60, 30) },
+        { id: 'field', role: 'AXTextField', value: 'Acme', frame: f(80, 200, 200, 30) }] },
+      { id: 'main', role: 'AXGroup', subrole: 'AXLandmarkMain', frame: f(0, 300, 900, 400) },
+      { id: 'named', role: 'AXGroup', name: 'Danger zone', frame: f(0, 300, 900, 100) },
+      { id: 'ident', role: 'AXGroup', identifier: 'toolbar', frame: f(0, 300, 900, 20) },
+      { id: 'web', role: 'AXWebArea', name: 'Settings', url: 'https://app.test/project/1/settings', frame: f(0, 400, 900, 300), children: [
+        { id: 'same', role: 'AXLink', name: 'Billing', url: 'https://app.test/project/1/billing', frame: f(0, 400, 90, 20) },
+        { id: 'ext', role: 'AXLink', name: 'Docs', url: 'https://docs.test/a', frame: f(100, 400, 90, 20) },
+        { id: 'far', role: 'AXList', offscreen: true, frame: f(0, 900, 90, 20), children: [
+          { id: 'farlink', role: 'AXLink', name: 'Logs', url: 'https://app.test/logs', offscreen: true, frame: f(0, 900, 90, 20) }] }] },
+    ] } }] } };
+  const snapshot = normalizeAirpointSnapshot(raw);
+  const tree = snapshot.model.surface.windows[0].tree;
+  const shown = new Map();
+  (function walk(node) { shown.set(node.id, node); (node.children ?? []).forEach(walk); })(tree);
+  for (const id of ['e1', 'e2', 'wrap1', 'wrap2', 'linktext', 'htext']) assert.equal(shown.has(id), false, `${id} is not shown`);
+  for (const id of ['link', 'h', 'hother', 'row', 'label', 'field', 'main', 'named', 'ident']) assert.ok(shown.has(id), `${id} is shown`);
+  // The wrapped link takes its wrapper's place, with its own complete frame.
+  assert.deepEqual(tree.children[0], { id: 'link', role: 'AXLink', name: 'Billing', url: 'https://x/billing', frame: [10, 100, 200, 40] });
+  assert.deepEqual(shown.get('h').children, [{ id: 'hother', role: 'AXStaticText', name: 'beta', frame: [200, 150, 40, 30] }]);
+  assert.equal(tree.frame, undefined, 'a root frame equal to the window frame is inherited');
+  // Same-origin URLs inside a web area are paths; the web area keeps its full address.
+  assert.equal(shown.get('web').url, 'https://app.test/project/1/settings');
+  assert.equal(shown.get('same').url, '/project/1/billing');
+  assert.equal(shown.get('ext').url, 'https://docs.test/a');
+  assert.equal(shown.get('far').text, 'Logs · /logs');
+  // Hidden nodes still exist for targeting: a click on the link reaches its wrappers.
+  for (const id of ['e1', 'wrap1', 'linktext']) assert.ok(snapshot.elementReferences.get(`${snapshot.generation}/${id}`));
+  assert.equal(resolveAirpointElement(snapshot, 'wrap2').elementID, 'wrap2');
+  // Encoded as compact JSON that YAML and JSON parsers both accept.
+  const text = toCanonicalYaml(snapshot.model);
+  assert.deepEqual(JSON.parse(text), YAML.parse(text));
+  assert.ok(!text.includes(': ') && !text.includes(', '));
 });
 
 test('post-action results send only what changed since the last delivered snapshot', () => {
@@ -116,7 +174,7 @@ test('post-action results send only what changed since the last delivered snapsh
   assert.equal(delta.changes_since, before.observation);
   const [main, other] = delta.surface.windows;
   assert.deepEqual(other, { window_id: 2, title: 'Other', unchanged: true });
-  assert.deepEqual(main.tree.children[0], { id: 'ax_2', role: 'AXGroup', unchanged: true });
+  assert.equal(main.tree.children[0], 'ax_2', 'an identical subtree is its bare id');
   assert.equal(main.tree.children[1].focused, true);
   assert.deepEqual(main.tree.children[2], after.surface.windows[0].tree.children[2], 'new UI is complete');
   // Without a previous delivery, or for another process, the full model is sent.
@@ -354,7 +412,7 @@ function fixture() {
 test("normalizes all AX frames to the application surface", () => {
   const snapshot = fixture();
   assert.deepEqual(snapshot.model.coordinate_space, { origin: "application-surface", units: "points", width: 800, height: 600 });
-  assert.deepEqual(snapshot.model.surface.windows[1].tree.children[0].frame, { x: 20, y: 20, width: 80, height: 30 });
+  assert.deepEqual(snapshot.model.surface.windows[1].tree.children[0].frame, [20, 20, 80, 30]);
   assert.deepEqual(globalPoint(snapshot, { x: 220, y: 35 }), { x: 620, y: 235 });
 });
 

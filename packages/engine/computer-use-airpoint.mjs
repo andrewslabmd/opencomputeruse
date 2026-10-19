@@ -42,7 +42,7 @@ function normalizeNode(node, origin) {
   if (name) normalized.name = name;
   if (value !== undefined && value !== name) normalized.value = value;
   if (identifier) normalized.identifier = identifier;
-  for (const key of ["url", "document"]) if (typeof node[key] === "string") normalized[key] = node[key];
+  for (const key of ["url", "document"]) if (meaningfulString(node[key])) normalized[key] = node[key];
   if (node.enabled === false) normalized.enabled = false;
   if (node.focused === true) normalized.focused = true;
   if (typeof node.selected === "boolean") normalized.selected = node.selected;
@@ -67,11 +67,15 @@ function normalizeNode(node, origin) {
 // A subtree that is offscreen throughout cannot be acted on, so it is sent as
 // one line with every distinct text it contains; scroll_to_visible on its id
 // brings it back in full detail. Internal trees keep every field.
-const summaryText = node => {
+// Inside a web area, a URL on the page's own origin is sent as its path ("/a/b"),
+// relative to the web area's url, which is always sent in full.
+const webOrigin = url => { try { const origin = new URL(url).origin; return origin === "null" ? undefined : origin; } catch { return undefined; } };
+const pageRelative = (url, origin) => origin && url.startsWith(`${origin}/`) ? url.slice(origin.length) : url;
+const summaryText = (node, origin) => {
   const parts = [];
   (function walk(n) {
     for (const key of ["name", "value", "identifier", "url", "document"]) {
-      const v = n[key];
+      const v = key === "url" && typeof n.url === "string" ? pageRelative(n.url, origin) : n[key];
       if (typeof v === "string" && v.trim()) parts.push(v.trim());
       else if (key === "value" && (finiteNumber(v) || typeof v === "boolean")) parts.push(String(v));
     }
@@ -81,13 +85,37 @@ const summaryText = node => {
 };
 const allOffscreen = node => node.offscreen === true && (node.children ?? []).every(allOffscreen);
 const anyTrue = (node, key) => node[key] === true || (node.children ?? []).some(child => anyTrue(child, key));
+const frameArray = frame => [frame.x, frame.y, frame.width, frame.height];
+const sameFrame = (a, b) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+const carriesState = node => ["name", "value", "identifier", "url", "document", "selection_range", "selection_style"].some(key => node[key] !== undefined) ||
+  node.focused === true || node.selected === true || node.enabled === false;
+// A web layout group (div) with no subrole beyond AXEmptyGroup and no text or
+// state. Its native identity and any operation it owns remain in the internal
+// tree: a click on a shown descendant or point still reaches it.
+const bareGroup = node => node.role === "AXGroup" && [undefined, "AXEmptyGroup"].includes(node.subrole) && !carriesState(node);
+const repeatsName = (child, parent) => child.role === "AXStaticText" && parent.name !== undefined && child.name === parent.name &&
+  !child.children?.length && !carriesState({ ...child, name: undefined });
 
-function modelNode(node, parent) {
+// Agent view of the tree: what is shown, never what exists. Bare groups with
+// nothing inside are omitted, a bare group around one node shows that node in
+// its place, and a text that only repeats its parent's name is folded into the
+// parent. Every named, valued, stateful or non-group node is kept.
+function visibleChildren(node) {
+  const children = (node.children ?? []).flatMap(visibleNodes).filter(child => !repeatsName(child, node));
+  const { children: _, ...rest } = node;
+  return children.length ? { ...rest, children } : rest;
+}
+function visibleNodes(node) {
+  const shown = visibleChildren(node);
+  return bareGroup(node) && (shown.children?.length ?? 0) <= 1 ? shown.children ?? [] : [shown];
+}
+
+function modelNode(node, parent, origin) {
   const output = { id: node.id, role: node.role };
   const offscreenRoot = node.offscreen === true && parent?.offscreen !== true;
   if (offscreenRoot && node.children?.length && allOffscreen(node)) {
     output.offscreen = true;
-    const text = summaryText(node);
+    const text = summaryText(node, origin);
     if (text) output.text = text;
     for (const key of ["selected", "focused"]) if (anyTrue(node, key)) output[key] = true;
     return output;
@@ -95,16 +123,26 @@ function modelNode(node, parent) {
   for (const key of ["subrole", "name", "value", "identifier", "url", "document", "enabled", "focused"]) {
     if (node[key] !== undefined) output[key] = node[key];
   }
+  const page = node.role === "AXWebArea" && node.url ? webOrigin(node.url) : undefined;
+  if (output.url && !page) output.url = pageRelative(output.url, origin);
   if (node.selected === true) output.selected = true;
   const range = node.selection_range;
   if (range && (node.focused === true || range.location !== 0 || range.length !== 0)) output.selection_range = range;
   if (node.selection_style !== undefined) output.selection_style = node.selection_style;
-  const sameFrame = parent && JSON.stringify(node.frame ?? null) === JSON.stringify(parent.frame ?? null);
   if (!node.frame) { if (parent && parent.frame) output.frame = null; }
-  else if (!sameFrame) output.frame = node.frame;
+  else if (!parent || !sameFrame(node.frame, parent.frame)) output.frame = frameArray(node.frame);
   if (offscreenRoot) output.offscreen = true;
-  if (node.children?.length) output.children = node.children.map(child => modelNode(child, node));
+  if (node.children?.length) output.children = node.children.map(child => modelNode(child, node, page ?? origin));
   return output;
+}
+
+// A window's root is always shown as itself; its frame, when equal to the
+// window's, is inherited from the window like any other node's, and a name
+// equal to the window title is stated once, as the title.
+function modelTree(tree, window) {
+  const root = visibleChildren(tree);
+  if (root.name !== undefined && root.name === window.title) delete root.name;
+  return modelNode(root, { frame: window.frame });
 }
 
 export function normalizeAirpointSnapshot(raw) {
@@ -188,8 +226,8 @@ export function normalizeAirpointSnapshot(raw) {
         window_id: window.windowID,
         ...(window.title ? { title: window.title } : {}),
         z_index: window.zIndex,
-        frame: window.frame,
-        tree: modelNode(window.tree, null),
+        frame: frameArray(window.frame),
+        tree: modelTree(window.tree, window),
       })),
     },
     captured_at: raw.capturedAt,
@@ -232,10 +270,10 @@ export function toCanonicalYaml(value) {
   // Compact representation preserves the full hierarchy. It is an encoding
   // optimization, not a guarantee about any client's result-size threshold.
   const flow = (item) => {
-    if (Array.isArray(item)) return `[${item.map(flow).join(", ")}]`;
+    if (Array.isArray(item)) return `[${item.map(flow).join(",")}]`;
     if (item && typeof item === "object") {
       return `{${Object.entries(item).filter(([, v]) => v !== undefined)
-        .map(([key, v]) => `${quoteYamlString(key)}: ${flow(v)}`).join(", ")}}`;
+        .map(([key, v]) => `${quoteYamlString(key)}:${flow(v)}`).join(",")}}`;
     }
     return yamlScalar(item);
   };
@@ -360,7 +398,8 @@ export function nativeActionAudit(snapshot, result, requested) {
     for (const window of snapshot.internalWindows) {
       const path = ancestry(window.tree, (press || pointer).receiver_id);
       if (pointer ? path : path?.some(node => node.role === "AXWebArea")) {
-        audit[nativePressCheck] = { windowID: window.windowID, pid: snapshot.pid, before: window };
+        audit[nativePressCheck] = { windowID: window.windowID, pid: snapshot.pid, before: window,
+          windowIDs: snapshot.internalWindows.map(w => w.windowID) };
         break;
       }
     }
@@ -412,7 +451,10 @@ export function confirmWebPress(result, snapshot) {
   // scoped to the receiver's window. A closed/unavailable window is a change.
   const after = snapshot?.pid === check.pid && snapshot.internalWindows?.find(w => w.windowID === check.windowID);
   const scoped = window => ({ internalWindows: [window], model: { application: {}, surface: {} } });
-  if (after && check.before && observedStateChanges(scoped(check.before), scoped(after)).count === 0) {
+  // A window the input opened or closed (a toolbar bubble, a popover) is its effect.
+  const windowIDs = snapshot?.internalWindows?.map(w => w.windowID) ?? [];
+  const windowsChanged = windowIDs.length !== check.windowIDs.length || windowIDs.some(id => !check.windowIDs.includes(id));
+  if (after && check.before && !windowsChanged && observedStateChanges(scoped(check.before), scoped(after)).count === 0) {
     // Accepted is not delivered: stop dependent steps without claiming rejection
     // or replaying; the effect may also still be pending in the page.
     // A device mirror, remote screen or canvas can change only in its pixels:
@@ -471,6 +513,7 @@ export function observedStateChanges(before, after) {
     return value;
   }
   const changes = [];
+  const moved = new Map();
   if (after?.model.application.state === "exited" && before?.model.application.state !== "exited") {
     changes.push({ property: "process", pid: after.pid, before: "running", after: "exited" });
   }
@@ -528,18 +571,24 @@ export function observedStateChanges(before, after) {
       }
       for (const property of ["value", "selected", "selection_range", "selection_style", "focused", "frame"]) {
         if (JSON.stringify(stable(old[property])) === JSON.stringify(stable(node[property]))) continue;
+        if (property === "frame") { moved.set(window.window_id, (moved.get(window.window_id) ?? 0) + 1); continue; }
         const summarize = value => typeof value === "string" && value.length > 256 ? { character_count: value.length, summary_only: true } : value ?? null;
         changes.push({ window_id: window.window_id, role: node.role, element_id: node.id,
           ...(node.name && node.name.length <= 256 ? { name: node.name } : {}), property, before: summarize(old[property]), after: summarize(node[property]) });
       }
     }
   }
-  return { count: changes.length, items: changes.slice(0, 32) };
+  // Moved or resized elements are counted per window: the fresh snapshot
+  // carries each one's new frame, so listing them would repeat it.
+  for (const [window_id, elements] of moved) changes.push({ window_id, property: "frame", elements });
+  const count = changes.length - moved.size + [...moved.values()].reduce((sum, n) => sum + n, 0);
+  return { count, items: changes.slice(0, 32) };
 }
 
 // Post-action results describe only what differs from the snapshot the agent
-// last received. An identical subtree or window becomes a stub with the same id
-// and `unchanged: true`; new or changed nodes are complete. Ids are stable for
+// last received. An identical subtree becomes its bare id string in place of the
+// node, and an identical window a stub with `unchanged: true`; new or changed
+// nodes are complete. Ids are stable for
 // the same native control, so the agent's previous copy stays authoritative
 // for stubs. A different process or no previous delivery yields the full model.
 export function deltaModel(previous, current) {
@@ -549,7 +598,7 @@ export function deltaModel(previous, current) {
     ({ id: "\u0000", children: (previous.surface?.windows ?? []).map(w => w.tree) });
   let stubbed = 0;
   const delta = node => {
-    if (serialized.get(node.id) === JSON.stringify(node)) { stubbed += 1; return { id: node.id, role: node.role, unchanged: true }; }
+    if (serialized.get(node.id) === JSON.stringify(node)) { stubbed += 1; return node.id; }
     return node.children ? { ...node, children: node.children.map(delta) } : node;
   };
   const prior = new Map((previous.surface?.windows ?? []).map(w => [w.window_id, JSON.stringify(w)]));

@@ -37,3 +37,17 @@ export function applyInputDelivery(result, receipts) {
     result.input_delivery_coverage_changed = true;
   }
 }
+
+// Delivery and dispatch records (trace ids, receipts, process ids, native
+// operation lists, activation lease state) explain how an action was carried
+// out. They are returned only when the agent asks for diagnostics; status,
+// code, effect and errors already state the outcome they determined.
+const diagnosticKeys = ["requested", "observation_captured_at", "native_operations", "input_trace_ids", "input_delivery",
+  "input_delivery_coverage_changed", "background_focus"];
+export function conciseActionResult(result) {
+  if (!result || typeof result !== "object") return result;
+  const concise = Object.fromEntries(Object.entries(result).filter(([key]) => !diagnosticKeys.includes(key)));
+  if (concise.resolved_element) { const { frame: _, ...element } = concise.resolved_element; concise.resolved_element = element; }
+  if (concise.observed_changes) { const { captured_at: _, ...changes } = concise.observed_changes; concise.observed_changes = changes; }
+  return concise;
+}

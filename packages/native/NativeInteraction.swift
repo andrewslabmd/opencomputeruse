@@ -10,6 +10,9 @@ struct NativeInteractionNode {
     let frame: CGRect?
     let children: [NativeInteractionNode]
     var offscreen: Bool = false
+    /// The observed name, used only to find the same control again after the
+    /// app rebuilt its native element (see NativeTargetRebinder).
+    var name: String? = nil
 }
 
 struct NativeInteractionFailure: Error, LocalizedError {
@@ -95,6 +98,78 @@ enum NativePointResolver {
             parent = parents[id]
         }
         return result
+    }
+}
+
+// Apps host some UI in its own native window while listing it as content of
+// the window that opened it: context menus (AXShowMenu) and Chrome's toolbar
+// bubbles (profile, extensions) are children of the browser window but their
+// parent chain ends at their own window. Such UI belongs to the observed window
+// only through an exact retained handle observed inside that window's tree:
+// the element itself or one of its live ancestors. Stale or unrelated UI,
+// whose handles were never observed there, remains rejected.
+enum NativeRelatedUI {
+    /// liveAncestry: the snapshot ids of the element and its live ancestors,
+    /// nearest first; nil where a live handle is not retained.
+    static func observedEntry(liveAncestry: [String?], root: NativeInteractionNode) -> String? {
+        var observed = Set<String>()
+        var pending = [root]
+        while let node = pending.popLast() { observed.insert(node.id); pending.append(contentsOf: node.children) }
+        return liveAncestry.lazy.compactMap { $0 }.first { observed.contains($0) }
+    }
+}
+
+struct NativeLiveElementDescription {
+    let role: String?
+    let name: String?
+    let frame: CGRect?
+}
+
+// Some apps replace a control's native element while showing the same control
+// (Chrome's toolbar bubbles, rebuilt web views). A reference whose retained
+// handle no longer answers is bound again only to the one live element in the
+// same window with the observed role, name and frame, and its observed
+// ancestors to the live ancestors with their role, name and frame, in order
+// (layers only the live tree has are skipped). Anything short of one
+// exact match leaves the reference stale; the bound path is then validated
+// like any other.
+enum NativeTargetRebinder {
+    static func sameFrame(_ a: CGRect?, _ b: CGRect?) -> Bool {
+        guard let a, let b else { return a == nil && b == nil }
+        return abs(a.minX - b.minX) <= 1 && abs(a.minY - b.minY) <= 1 && abs(a.width - b.width) <= 1 && abs(a.height - b.height) <= 1
+    }
+
+    static func matches(_ live: NativeLiveElementDescription, _ node: NativeInteractionNode) -> Bool {
+        live.role == node.role && live.name == node.name && sameFrame(live.frame, node.frame)
+    }
+
+    /// chain is the observed path from the target to its window root; candidates
+    /// are live elements that may be the target, possibly repeated.
+    static func rebind<Handle>(chain: [NativeInteractionNode], window: Handle, candidates: [Handle],
+                               describe: (Handle) -> NativeLiveElementDescription, parent: (Handle) -> Handle?,
+                               same: (Handle, Handle) -> Bool) -> [String: Handle]? {
+        guard chain.count >= 2, let target = chain.first, target.name != nil || target.frame != nil else { return nil }
+        var found: [Handle] = []
+        for candidate in candidates where !found.contains(where: { same($0, candidate) }) && matches(describe(candidate), target) {
+            found.append(candidate)
+        }
+        guard found.count == 1, let live = found.first else { return nil }
+        var bound = [target.id: live]
+        var index = 1
+        var current = parent(live)
+        for _ in 0..<200 {
+            guard let ancestor = current, index < chain.count else { break }
+            let node = chain[index]
+            if index == chain.count - 1 {
+                // The observed root is the window itself.
+                if same(ancestor, window) { bound[node.id] = window; index += 1 }
+            } else if matches(describe(ancestor), node) {
+                bound[node.id] = ancestor; index += 1
+            }
+            if same(ancestor, window) { break }
+            current = parent(ancestor)
+        }
+        return index == chain.count ? bound : nil
     }
 }
 
@@ -213,6 +288,13 @@ struct NativeInteractionAction {
     var modifiers: CGEventFlags = []
     /// perform_action: the advertised action to perform; nil lists them.
     var actionName: String? = nil
+    /// The agent named a point rather than an element. Pointer input at a point
+    /// lands in the observed window wherever the app's elements are; the element
+    /// resolved there only labels the result.
+    var atPoint: Bool = false
+    var pointerAtPoint: Bool {
+        atPoint && (kind == "long_press" || (["click", "drag"].contains(kind) && (pointer || clickCount > 1 || !modifiers.isEmpty)))
+    }
 }
 
 struct NativeInteractionExecutor {
@@ -224,13 +306,22 @@ struct NativeInteractionExecutor {
 
     func execute(_ action: NativeInteractionAction, chain: [NativeInteractionNode]) throws -> NativeInteractionResult {
         var result = NativeInteractionResult(status: "no_effect", behavior: "no_effect", element_id: chain.first?.id)
+        // Process and window are checked before execution and again at dispatch.
+        // For pointer input at a point, a rebuilt or moved element changes only
+        // which element names the result, never where the input lands.
+        func validate(_ node: NativeInteractionNode) throws {
+            do { try access.validate(node) }
+            catch let failure as NativeInteractionFailure where action.pointerAtPoint && failure.code == "native_target_changed" {}
+        }
         do {
             guard !chain.isEmpty else { return result }
             // Identity/geometry applies to the whole path. Enabled state applies
             // to operation receivers, not inert page/section/layout objects.
             for node in chain {
-                try access.validate(node)
-                if node.role == "AXWindow" { try access.validateControl(node) }
+                try validate(node)
+                if node.role == "AXWindow", (try access.read(node.id, "AXEnabled") as? NSNumber)?.boolValue == false {
+                    throw NativeInteractionFailure(code: "target_disabled", message: "The operation's AXWindow control is disabled.")
+                }
             }
             func record(_ id: String, kind: String, name: String, outcome: NativeCallOutcome) throws -> Bool {
                 switch outcome {
@@ -379,7 +470,7 @@ struct NativeInteractionExecutor {
             // receiver. It lands at the requested point inside it; for an element
             // reference without a contained point, at its centre.
             func pointerGesture(_ node: NativeInteractionNode, _ gesture: NativePointerGesture) throws -> NativeInteractionResult {
-                try access.validate(node)
+                try validate(node)
                 try requireActivation()
                 result.input_trace_ids = [try access.pointerGesture(node.id, gesture)]
                 result.element_id = node.id; result.behavior = gesture.behavior; result.status = "sent"; result.effect = gesture.behavior + "_sent"
@@ -387,7 +478,8 @@ struct NativeInteractionExecutor {
                 return result
             }
             func pointerPoint(_ node: NativeInteractionNode) -> CGPoint {
-                node.frame.map { $0.contains(action.point) ? action.point : CGPoint(x: $0.midX, y: $0.midY) } ?? action.point
+                if action.atPoint { return action.point }
+                return node.frame.map { $0.contains(action.point) ? action.point : CGPoint(x: $0.midX, y: $0.midY) } ?? action.point
             }
             func pointerClick(_ node: NativeInteractionNode) throws -> NativeInteractionResult {
                 try pointerGesture(node, .init(points: [pointerPoint(node)], clickCount: action.clickCount, modifiers: action.modifiers))

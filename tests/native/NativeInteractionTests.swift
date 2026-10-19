@@ -203,6 +203,71 @@ final class NativeInteractionTests: XCTestCase {
         let result=try NativeInteractionExecutor(access:access).execute(action,chain:[node("button","AXButton",CGRect(x:0,y:0,width:20,height:40))])
         XCTAssertEqual(access.pointerCalls,["button@10,20"]);XCTAssertTrue(access.calls.isEmpty);XCTAssertEqual(result.status,"sent")
     }
+    func testPointerClickAtAPointDispatchesThereEvenWhenTheResolvedElementWasRebuilt() throws {
+        // Chrome's profile bubble: the element under the point no longer matches
+        // the observation, but the input is bound to the window at that point.
+        let access=FakeNativeAccess();access.identityInvalid=true
+        var action=NativeInteractionAction(kind:"click",point:CGPoint(x:60,y:14));action.pointer=true;action.atPoint=true
+        let chain=[node("item","AXButton",CGRect(x:0,y:0,width:328,height:28)),node("bubble","AXWindow",CGRect(x:0,y:0,width:328,height:541))]
+        let result=try NativeInteractionExecutor(access:access).execute(action,chain:chain)
+        XCTAssertEqual(result.status,"sent");XCTAssertEqual(access.pointerCalls,["item@60,14"]);XCTAssertEqual(result.element_id,"item")
+        // A point outside the stale element's observed frame still lands at the point.
+        access.pointerCalls=[];var outside=NativeInteractionAction(kind:"click",point:CGPoint(x:400,y:14));outside.pointer=true;outside.atPoint=true
+        _=try NativeInteractionExecutor(access:access).execute(outside,chain:chain)
+        XCTAssertEqual(access.pointerCalls,["item@400,14"])
+        // An element reference, or Accessibility input at a point, still requires the observed element.
+        action.atPoint=false
+        XCTAssertEqual(try NativeInteractionExecutor(access:access).execute(action,chain:chain).code,"native_target_changed")
+        var press=NativeInteractionAction(kind:"click",point:CGPoint(x:60,y:14));press.atPoint=true
+        XCTAssertEqual(try NativeInteractionExecutor(access:access).execute(press,chain:chain).code,"native_target_changed")
+        XCTAssertEqual(access.pointerCalls,["item@400,14"]);XCTAssertTrue(access.calls.isEmpty)
+    }
+    func testUIHostedInItsOwnWindowBelongsOnlyThroughAHandleObservedInThisWindow() {
+        // A window-scoped Chrome observation lists the profile bubble's dialog under
+        // the browser window, while the bubble's live parents end at its own window.
+        let item=node("item","AXButton"),menu=node("menu","AXMenu",children:[item])
+        let dialog=node("dialog","AXGroup",children:[node("wrap","AXGroup",children:[menu])])
+        let root=node("browser","AXWindow",children:[node("view","AXGroup",children:[dialog])])
+        // Every node on the bubble's path qualifies, not only those under its menu.
+        XCTAssertEqual(NativeRelatedUI.observedEntry(liveAncestry:["dialog",nil],root:root),"dialog")
+        XCTAssertEqual(NativeRelatedUI.observedEntry(liveAncestry:[nil,"wrap","dialog",nil],root:root),"wrap")
+        XCTAssertEqual(NativeRelatedUI.observedEntry(liveAncestry:["item","menu","wrap","dialog",nil],root:root),"item")
+        // Handles never observed in this window (stale, or another window's) do not.
+        XCTAssertNil(NativeRelatedUI.observedEntry(liveAncestry:[nil,nil,nil],root:root))
+        XCTAssertNil(NativeRelatedUI.observedEntry(liveAncestry:["otherWindowButton","otherWindow"],root:root))
+    }
+    func testRebuiltElementIsBoundAgainOnlyToTheOneLiveControlWithItsRoleNameAndFrame() {
+        // Live tree: window > dialog > menu > group > button, each a fresh handle.
+        let frame=CGRect(x:1355,y:517,width:328,height:28)
+        var item=node("item","AXButton",frame);item.name="MedHue Labs (medhuelabs@gmail.com)"
+        var group=node("group","AXGroup",frame);group.name="Other Chrome Profiles"
+        var dialog=node("dialog","AXGroup",CGRect(x:1355,y:80,width:328,height:541));dialog.name="Accounts and sync"
+        let chain=[item,group,node("menu","AXMenu",CGRect(x:1355,y:80,width:328,height:541)),dialog,node("bubble","AXWindow",CGRect(x:1355,y:80,width:328,height:541))]
+        var live:[String:NativeLiveElementDescription]=[
+            "w":.init(role:"AXWindow",name:"Accounts and sync",frame:CGRect(x:1355,y:80,width:328,height:541)),
+            "d":.init(role:"AXGroup",name:"Accounts and sync",frame:CGRect(x:1355,y:80,width:328,height:541)),
+            "x":.init(role:"AXGroup",name:nil,frame:CGRect(x:1355,y:80,width:328,height:541)),
+            "m":.init(role:"AXMenu",name:nil,frame:CGRect(x:1355,y:80,width:328,height:541)),
+            "g":.init(role:"AXGroup",name:"Other Chrome Profiles",frame:frame),
+            "b":.init(role:"AXButton",name:"MedHue Labs (medhuelabs@gmail.com)",frame:frame),
+            "other":.init(role:"AXButton",name:"Add Chrome Profile",frame:CGRect(x:1355,y:546,width:328,height:28)),
+        ]
+        let parents=["b":"g","other":"g","g":"m","m":"x","x":"d","d":"w"]
+        func rebind(_ candidates:[String])->[String:String]? {
+            NativeTargetRebinder.rebind(chain:chain,window:"w",candidates:candidates,describe:{live[$0]!},parent:{parents[$0]},same:{$0==$1})
+        }
+        XCTAssertEqual(rebind(["other","b","g","b"]),["item":"b","group":"g","menu":"m","dialog":"d","bubble":"w"])
+        // A moved control, a renamed one, or two indistinguishable ones are not bound.
+        live["b"] = .init(role:"AXButton",name:"MedHue Labs (medhuelabs@gmail.com)",frame:frame.offsetBy(dx:0,dy:28))
+        XCTAssertNil(rebind(["b"]))
+        live["b"] = .init(role:"AXButton",name:"Work",frame:frame)
+        XCTAssertNil(rebind(["b"]))
+        live["b"] = .init(role:"AXButton",name:"MedHue Labs (medhuelabs@gmail.com)",frame:frame)
+        live["twin"]=live["b"];XCTAssertNil(NativeTargetRebinder.rebind(chain:chain,window:"w",candidates:["b","twin"],
+            describe:{live[$0]!},parent:{["twin":"g"][$0] ?? parents[$0]},same:{$0==$1}))
+        // The live ancestry must reach the observed window through the observed roles.
+        XCTAssertNil(NativeTargetRebinder.rebind(chain:chain,window:"elsewhere",candidates:["b"],describe:{live[$0]!},parent:{parents[$0]},same:{$0==$1}))
+    }
     func testLiteralKeyboardInputPreservesSelectionAndDefersSubmitWithoutContentSetters() throws {
         let access=FakeNativeAccess();access.keyboardFocus="text"
         access.values["text:AXValue"]="A😀B" as CFString

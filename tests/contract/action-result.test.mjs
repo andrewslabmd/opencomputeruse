@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { interruptedActionReceipt, batchDisposition, applyInputDelivery } from '../../packages/engine/computer-use-action-result.mjs';
+import { interruptedActionReceipt, batchDisposition, applyInputDelivery, conciseActionResult } from '../../packages/engine/computer-use-action-result.mjs';
 import { withActionFocus } from '../../packages/engine/computer-use-action-focus.mjs';
 import { normalizeAirpointSnapshot, observedStateChanges, resolveAirpointPoint } from '../../packages/engine/computer-use-airpoint.mjs';
 
@@ -80,4 +80,18 @@ test('foreground target and human app switching do not cancel correctly delivere
     assert.equal(result.input_delivery_coverage_changed,foreground===44 ? true : undefined);
     assert.deepEqual(batchDisposition(result,{targetExited:false,isLast:false}),{stop:false});
   }
+});
+
+test('action results carry dispatch and delivery records only on request', () => {
+  const full = { index: 0, kind: 'click', requested: { element: 'ax_1' }, status: 'sent', behavior: 'pointer_click',
+    resolved_element: { id: 'ax_1', role: 'AXButton', name: 'Work', frame: { x: 1, y: 2, width: 3, height: 4 } },
+    observation_captured_at: 1, native_operations: [{ name: 'LeftClick' }], input_trace_ids: ['t'], effect: 'pointer_click_sent',
+    input_delivery: [{ trace_id: 't', received_pids: [9], source_state: 7 }], input_delivery_coverage_changed: true,
+    background_focus: { mode: 'user_active', cleanup: 'retained_for_workflow' }, code: 'pointer_effect_unobserved', error: 'x',
+    observed_changes: { count: 1, items: [{ window_id: 2 }], captured_at: 5 }, foreground_guard: [{ outcome: 'restored' }],
+    supported: [{ id: 'ax_1', actions: [] }] };
+  assert.deepEqual(conciseActionResult(full), { index: 0, kind: 'click', status: 'sent', behavior: 'pointer_click',
+    resolved_element: { id: 'ax_1', role: 'AXButton', name: 'Work' }, effect: 'pointer_click_sent', code: 'pointer_effect_unobserved', error: 'x',
+    observed_changes: { count: 1, items: [{ window_id: 2 }] }, foreground_guard: [{ outcome: 'restored' }], supported: [{ id: 'ax_1', actions: [] }] });
+  assert.equal(full.native_operations.length, 1, 'the full result is not modified');
 });

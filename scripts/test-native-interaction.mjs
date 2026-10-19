@@ -44,7 +44,7 @@ try{
   for(const direction of ['down','right','up','left']){
     const before=await state();
     const owner=nodes(r).find(n=>n.role==='AXScrollArea'&&n.children?.some(x=>x.role==='AXWebArea'));
-    r=await call('use_action_batch',{actions:[{kind:'scroll',element:owner.id,direction}]});
+    r=await call('use_action_batch',{actions:[{kind:'scroll',element:owner.id,direction}],diagnostics:true});
     assert.equal(r.actions[0].status,'completed',JSON.stringify(r.actions));
     const axis=['up','down'].includes(direction)?'y':'x',sign=['down','right'].includes(direction)?1:-1;
     const after=await until(s=>(s.web[axis]-before.web[axis])*sign>0);
@@ -53,27 +53,27 @@ try{
   }
   const offscreen=nodes(r).find(n=>n.name==='Destination 90'&&n.role==='AXLink');
   assert.equal(offscreen.offscreen,true);
-  r=await call('use_action_batch',{actions:[{kind:'scroll_to_visible',element:offscreen.id}]});
+  r=await call('use_action_batch',{actions:[{kind:'scroll_to_visible',element:offscreen.id}],diagnostics:true});
   assert.equal(r.actions[0].status,'completed',JSON.stringify(r.actions));
   assert.notEqual(nodes(r).find(n=>n.name==='Destination 90'&&n.role==='AXLink').offscreen,true);
   await until(s=>s.web.y>2000);
   console.log('Native reveal of exact offscreen link: passed');
   for(let i=0;i<2;i++){
     const open=nodes(r).find(n=>n.name==='Open save panel');
-    r=await call('use_action_batch',{actions:[{kind:'click',element:open.id}]});
+    r=await call('use_action_batch',{actions:[{kind:'click',element:open.id}],diagnostics:true});
     r=await call('use_observe',{app_target:`PID:${fixture.pid}`});
     const field=nodes(r).find(n=>n.role==='AXTextField'&&n.identifier==='saveAsNameTextField');
     assert.ok(field,'Missing native filename field');
     const filename=`Native ${i===0?'value':'selected edit'} ${Date.now()}.rtf`;
-    if(i===0)r=await call('use_action_batch',{actions:[{kind:'type',element:field.id,text:filename,replace:true,input_method:'accessibility'}]});
+    if(i===0)r=await call('use_action_batch',{actions:[{kind:'type',element:field.id,text:filename,replace:true,input_method:'accessibility'}],diagnostics:true});
     else{
-      r=await call('use_action_batch',{actions:[{kind:'select_text',element:field.id,text:field.value}]});
-      r=await call('use_action_batch',{actions:[{kind:'type',element:nodes(r).find(n=>n.identifier===field.identifier).id,text:filename,input_method:'accessibility'}]});
+      r=await call('use_action_batch',{actions:[{kind:'select_text',element:field.id,text:field.value}],diagnostics:true});
+      r=await call('use_action_batch',{actions:[{kind:'type',element:nodes(r).find(n=>n.identifier===field.identifier).id,text:filename,input_method:'accessibility'}],diagnostics:true});
     }
     assert.equal(r.actions[0].status,'completed',JSON.stringify(r.actions));
     const save=nodes(r).find(n=>n.role==='AXButton'&&n.name==='Save');
     assert.notEqual(save.offscreen,true,'Sheet overflow cannot hide Save');
-    r=await call('use_action_batch',{actions:[{kind:'click',element:save.id}]});
+    r=await call('use_action_batch',{actions:[{kind:'click',element:save.id}],diagnostics:true});
     assert.equal(r.actions[0].status,'completed',JSON.stringify(r.actions));
     const actual=await until(s=>s.saves.length===i+1);
     assert.equal(actual.saves[i].url,join(dir,filename));
@@ -82,28 +82,28 @@ try{
     console.log(`Native save ${i===0?'value assignment':'selected edit'}: passed`);
   }
   const open=nodes(r).find(n=>n.name==='Open save panel');
-  r=await call('use_action_batch',{actions:[{kind:'click',element:open.id}]});
+  r=await call('use_action_batch',{actions:[{kind:'click',element:open.id}],diagnostics:true});
   r=await call('use_observe',{app_target:`PID:${fixture.pid}`});
   if(!nodes(r).some(n=>n.role==='AXButton'&&n.name==='New Folder')){
     const disclosure=nodes(r).find(n=>n.role==='AXDisclosureTriangle'&&n.identifier==='NS_OPEN_SAVE_DISCLOSURE_TRIANGLE');
     assert.ok(disclosure,'Native save panel must expose its disclosure control');
-    r=await call('use_action_batch',{actions:[{kind:'click',element:disclosure.id}]});
+    r=await call('use_action_batch',{actions:[{kind:'click',element:disclosure.id}],diagnostics:true});
   }
   const beforeFolder=await state();
   const newFolder=nodes(r).find(n=>n.role==='AXButton'&&n.name==='New Folder');
   assert.ok(newFolder,'Expanded native save panel must expose New Folder');
-  r=await call('use_action_batch',{actions:[{kind:'click',element:newFolder.id}]});
+  r=await call('use_action_batch',{actions:[{kind:'click',element:newFolder.id}],diagnostics:true});
   const folderField=nodes(r).find(n=>n.role==='AXTextField'&&n.value==='untitled folder');
   assert.ok(folderField,'Native dialog must be inspected even after an uncertain action return');
   // Activation is on demand; an uncertain action must never release the workflow's lease.
   assert.ok([undefined,'retained_for_workflow'].includes(r.actions[0].background_focus?.cleanup));
   const folder=`Created native folder ${Date.now()}`;
   const create=nodes(r).find(n=>n.role==='AXButton'&&n.name==='Create');
-  r=await call('use_action_batch',{actions:[{kind:'type',element:folderField.id,text:folder,replace:true},{kind:'click',element:create.id}]});
+  r=await call('use_action_batch',{actions:[{kind:'type',element:folderField.id,text:folder,replace:true},{kind:'click',element:create.id}],diagnostics:true});
   const field=nodes(r).find(n=>n.role==='AXTextField'&&n.identifier==='saveAsNameTextField');
   const save=nodes(r).find(n=>n.role==='AXButton'&&n.name==='Save');
   const filename=`New directory save ${Date.now()}.rtf`;
-  r=await call('use_action_batch',{actions:[{kind:'type',element:field.id,text:filename,replace:true},{kind:'click',element:save.id}]});
+  r=await call('use_action_batch',{actions:[{kind:'type',element:field.id,text:filename,replace:true},{kind:'click',element:save.id}],diagnostics:true});
   const saved=await until(s=>s.saves.length===3);
   assert.equal(saved.saves[2].url,join(dir,folder,filename));
   assert.equal(saved.resignations,beforeFolder.resignations,'Recoverable results must not deactivate the owned app');
@@ -113,7 +113,7 @@ try{
   assert.notEqual(beforeFocus.key_window,beforeFocus.secondary_window,'Fixture must start with another key window');
   const secondaryEditor=nodes(r).find(n=>n.identifier==='secondary-editor');
   assert.ok(secondaryEditor,'Second document editor must be exposed');
-  r=await call('use_action_batch',{actions:[{kind:'click',element:secondaryEditor.id},{kind:'hotkey',keys:['cmd','s']}]});
+  r=await call('use_action_batch',{actions:[{kind:'click',element:secondaryEditor.id},{kind:'hotkey',keys:['cmd','s']}],diagnostics:true});
   assert.equal(r.actions[0].status,'completed',JSON.stringify(r.actions));
   assert.equal(r.actions[1].receiver.window_id,beforeFocus.secondary_window);
   const routed=await until(s=>s.shortcut_window===s.secondary_window);
@@ -121,12 +121,12 @@ try{
   assert.notEqual(routed.frontmost_pid,fixture.pid);
   console.log('Editor click and shortcut route to the same native document window: passed');
   const literal='Unicode 😀 𝄞 é \\n {return}';
-  r=await call('use_action_batch',{actions:[{kind:'type',element:nodes(r).find(n=>n.identifier==='secondary-editor').id,text:literal,replace:true,submit:true}]});
+  r=await call('use_action_batch',{actions:[{kind:'type',element:nodes(r).find(n=>n.identifier==='secondary-editor').id,text:literal,replace:true,submit:true}],diagnostics:true});
   assert.ok(['completed','sent'].includes(r.actions[0].status),JSON.stringify(r.actions));
   const submitted=await until(s=>s.submitted_text===literal);
   assert.notEqual(submitted.frontmost_pid,fixture.pid);
   console.log('Literal Unicode keyboard replacement and confirmed-input Submit: passed');
-  r=await call('use_action_batch',{actions:[{kind:'type',element:nodes(r).find(n=>n.identifier==='secondary-editor').id,text:'',replace:true,submit:true}]});
+  r=await call('use_action_batch',{actions:[{kind:'type',element:nodes(r).find(n=>n.identifier==='secondary-editor').id,text:'',replace:true,submit:true}],diagnostics:true});
   assert.ok(['completed','sent'].includes(r.actions[0].status),JSON.stringify(r.actions));
   await until(s=>s.submitted_text==='');
   console.log('Empty keyboard replacement clears only the selected editor: passed');

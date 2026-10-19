@@ -25,8 +25,8 @@ async function dispose(){
  fixture=null;
 }
 const observe=async title=>decode(await client.request('tools/call',{name:'use_observe',arguments:{app_target:'PID:'+fixture.pid,window_title:title}})).snapshot;
-const batch=async actions=>decode(await client.request('tools/call',{name:'use_action_batch',arguments:{actions}}));
-const point=n=>({x:n.frame.x+n.frame.width/2,y:n.frame.y+n.frame.height/2});
+const batch=async actions=>decode(await client.request('tools/call',{name:'use_action_batch',arguments:{actions,diagnostics:true}}));
+const point=n=>({x:n.frame[0]+n.frame[2]/2,y:n.frame[1]+n.frame[3]/2});
 try{
  await client.connect('Shared observation acceptance'); await control.connect('Responsive control acceptance');
  const host=await control.request('status');assert.ok(!host.busy&&!host.paused&&!host.owner);

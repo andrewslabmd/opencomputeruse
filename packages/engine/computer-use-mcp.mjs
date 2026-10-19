@@ -1,4 +1,4 @@
-import { interruptedActionReceipt, batchDisposition, applyInputDelivery } from "./computer-use-action-result.mjs";
+import { interruptedActionReceipt, batchDisposition, applyInputDelivery, conciseActionResult } from "./computer-use-action-result.mjs";
 import { tools as toolDefinitions } from "../protocol/tools.mjs";
 const [observeDefinition, batchDefinition, permissionDefinition] = toolDefinitions;
 import { randomUUID } from "node:crypto";
@@ -503,7 +503,7 @@ async function reportAirpointActionBatch(message, args) {
   }
   const payload = {
     status,
-    actions: results,
+    actions: args.diagnostics === true ? results : results.map(conciseActionResult),
     snapshot: finalSnapshotError
       ? {
           available: false,

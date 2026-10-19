@@ -952,7 +952,7 @@ private final class ComputerUseHelper {
         func interactionNode(_ node: AccessibilitySnapshotNode) -> NativeInteractionNode {
             NativeInteractionNode(id: node.id, role: node.role, subrole: node.subrole,
                 frame: node.frame.map { CGRect(x: $0.x, y: $0.y, width: $0.w, height: $0.h) },
-                children: (node.children ?? []).map(interactionNode), offscreen: node.offscreen ?? false)
+                children: (node.children ?? []).map(interactionNode), offscreen: node.offscreen ?? false, name: node.name)
         }
         self.snapshotWindows = Dictionary(uniqueKeysWithValues: encodedWindows.map { ($0.windowID, interactionNode($0.tree)) })
         self.snapshotKeyboardWindowIDs = result.surface.anchorWindowID.map { Set([$0]) } ?? Set(encodedWindows.map(\.windowID))
@@ -1022,7 +1022,14 @@ private final class ComputerUseHelper {
             let application = AXUIElementCreateApplication(point.processID)
             _ = AXUIElementSetMessagingTimeout(application, 2)
             let hit: AXUIElement
-            if let elementID = action.elementID {
+            let elementChain = try action.elementID.map {
+                try NativePointResolver.elementChain(root: root, elementID: $0, allowOffscreen: action.kind == "scroll_to_visible")
+            }
+            if let elementID = action.elementID, let observed = elementChain {
+                if !observed.allSatisfy({ self.isLive($0, in: window) }),
+                   let rebound = self.rebind(observed, in: window, application: application) {
+                    for (id, element) in rebound { self.snapshotElements[id] = element }
+                }
                 guard let exact = self.snapshotElements[elementID], self.element(exact, belongsTo: window) else {
                     throw NativeInteractionFailure(code: "native_target_changed", message: "The retained control no longer belongs to the observed window.")
                 }
@@ -1046,8 +1053,25 @@ private final class ComputerUseHelper {
                 if CFEqual(element, window.element) { break }
                 current = self.parent(of: element)
             }
-            let chain = try action.elementID.map { try NativePointResolver.elementChain(root: root, elementID: $0, allowOffscreen: action.kind == "scroll_to_visible") }
-                ?? NativePointResolver.chain(root: root, nativeHitIDs: ids, point: location)
+            let pointerAtPoint = action.elementID == nil &&
+                (action.kind == "long_press" || (["click", "drag"].contains(action.kind) && action.inputMethod == "pointer"))
+            let chain: [NativeInteractionNode]
+            if let elementChain {
+                chain = elementChain
+            } else if pointerAtPoint {
+                // Pointer input at a point goes to this window at that point. An
+                // element there that the observation cannot name only leaves the
+                // result labelled with the window.
+                let resolved = (try? NativePointResolver.chain(root: root, nativeHitIDs: ids, point: location)) ?? []
+                chain = resolved.isEmpty ? [root] : resolved
+            } else {
+                chain = try NativePointResolver.chain(root: root, nativeHitIDs: ids, point: location)
+            }
+            // Window-bound input goes to the native window hosting the receiver. UI
+            // observed inside this window but hosted in its own (Chrome's profile
+            // bubble) receives it there, not in the window beneath it.
+            let inputWindow = self.accessibilityWindowAncestor(of: hit)
+                .flatMap { host in surface.accessibilityWindows.first { CFEqual($0.element, host) } } ?? window
             let access = AXNativeInteractionAccess(elements: self.snapshotElements, validateNode: { node, linkedOwner, phase in
                 try self.nativeCancellation?.check()
                 guard let element = self.snapshotElements[node.id] else {
@@ -1056,10 +1080,17 @@ private final class ComputerUseHelper {
                 _ = AXUIElementSetMessagingTimeout(element, 2)
                 var pid: pid_t = 0
                 guard try NativeProcessIdentity.read(point.processID) == identity,
-                      AXUIElementGetPid(element, &pid) == .success, pid == point.processID,
-                      self.element(element, belongsTo: window),
-                      self.stringAttribute(element, "AXRole" as CFString) == node.role else {
-                    throw NativeInteractionFailure(code: "native_target_changed", message: "The native element identity/window/role changed. Observe again.")
+                      AXUIElementGetPid(element, &pid) == .success, pid == point.processID else {
+                    throw NativeInteractionFailure(code: "native_target_changed", message: "The target process changed. Observe again.")
+                }
+                guard let role = self.stringAttribute(element, "AXRole" as CFString) else {
+                    throw NativeInteractionFailure(code: "native_target_changed", message: "\(node.id) (\(node.role)) no longer exists: the app closed or rebuilt it, and no single live control with its role, name and frame was found. Observe again.")
+                }
+                guard role == node.role else {
+                    throw NativeInteractionFailure(code: "native_target_changed", message: "\(node.id) changed role from \(node.role) to \(role). Observe again.")
+                }
+                guard self.element(element, belongsTo: window) else {
+                    throw NativeInteractionFailure(code: "native_target_changed", message: "\(node.id) is no longer in the observed window. Observe again.")
                 }
                 // Validate live ancestry, including coarse-hit refinement. Never
                 // route a fallback to a sibling or a descendant outside the point.
@@ -1091,23 +1122,15 @@ private final class ComputerUseHelper {
                         ancestor = self.parent(of: a)
                     }
                 }
-                if !related {
-                    // A context menu has its own parent chain that need not reach
-                    // the control that opened it (see element(_:belongsTo:)). Its
-                    // observed containers are related only through the exact
-                    // retained menu (native handle equality) under them in this
-                    // window's observed tree.
-                    var candidate: AXUIElement? = hit
-                    for _ in 0..<8 {
-                        guard let current = candidate else { break }
-                        if self.stringAttribute(current, kAXRoleAttribute as CFString) == kAXMenuRole as String {
-                            if let id = self.snapshotElements.first(where: { CFEqual($0.value, current) })?.key,
-                               let path = try? NativePointResolver.elementChain(root: root, elementID: id, allowOffscreen: true),
-                               path.dropFirst().contains(where: { $0.id == node.id }) { related = true }
-                            break
-                        }
-                        candidate = self.parent(of: current)
-                    }
+                if !related, self.accessibilityWindowAncestor(of: hit).map({ !CFEqual($0, window.element) }) ?? true {
+                    // UI hosted in its own native window (a context menu, Chrome's
+                    // toolbar bubble) has a parent chain that does not reach the
+                    // containers it is observed under (see NativeRelatedUI). They
+                    // are related only through the exact retained handle observed
+                    // inside this window's tree on the hit's live ancestry.
+                    if let entry = NativeRelatedUI.observedEntry(liveAncestry: self.retainedAncestry(of: hit), root: root),
+                       let path = try? NativePointResolver.elementChain(root: root, elementID: entry, allowOffscreen: true),
+                       path.contains(where: { $0.id == node.id }) { related = true }
                 }
                 guard related else { throw NativeInteractionFailure(code: "native_target_changed", message: "The live native ancestry changed. Observe again.") }
                 if phase != .identity, let expected = node.frame {
@@ -1124,7 +1147,7 @@ private final class ComputerUseHelper {
                     frame: frame, children: node.children, offscreen: node.offscreen)
             }, checkInput: {
                 try self.nativeCancellation?.check()
-            }, inputWindowID: window.windowID, inputWindowFrame: window.frame)
+            }, inputWindowID: inputWindow.windowID, inputWindowFrame: inputWindow.frame)
             var input = NativeInteractionAction(kind: action.kind == "type" && action.inputMethod != "accessibility" ? "input_text" : action.kind, point: location)
             if let x = action.toX, let y = action.toY {
                 guard x.isFinite, y.isFinite else { throw NativeInteractionFailure(code: "invalid_drag", message: "Drag destination must be finite.") }
@@ -1136,6 +1159,7 @@ private final class ComputerUseHelper {
             input.clickCount = action.clickCount ?? 1
             input.modifiers = try NativeInputPlan.modifierFlags(action.modifiers ?? [])
             input.actionName = action.actionName
+            input.atPoint = action.elementID == nil
             if let ms = action.durationMs {
                 guard ms >= 0, Double(ms) / 1000 <= NativePointerGesture.maximumDuration else {
                     throw NativeInteractionFailure(code: "invalid_pointer_duration", message: "Pointer durations must be between 0 and 5000 ms.")
@@ -1540,25 +1564,75 @@ private final class ComputerUseHelper {
         return nil
     }
 
+    private func isLive(_ node: NativeInteractionNode, in window: ApplicationSurfaceWindow) -> Bool {
+        guard let element = self.snapshotElements[node.id] else { return false }
+        return self.stringAttribute(element, kAXRoleAttribute as CFString) == node.role && self.element(element, belongsTo: window)
+    }
+
+    /// The name the snapshot gives a node, read from a live element.
+    private func liveName(_ element: AXUIElement, role: String?) -> String? {
+        let editable = role.map { NativeInteractionExecutor.editable.contains($0) } == true ||
+            self.stringAttribute(element, kAXSubroleAttribute as CFString) == "AXSearchField"
+        return (editable ? ["AXTitle", "AXDescription", "AXLabel"] : ["AXTitle", "AXDescription", "AXLabel", "AXValue"])
+            .lazy.compactMap { self.meaningfulAccessibilityText(self.stringAttribute(element, $0 as CFString)) }.first
+    }
+
+    /// Finds the observed control again after the app replaced its element: first
+    /// on the hit path at its observed centre, then anywhere in its window.
+    private func rebind(_ chain: [NativeInteractionNode], in window: ApplicationSurfaceWindow,
+                        application: AXUIElement) -> [String: AXUIElement]? {
+        guard let target = chain.first else { return nil }
+        func describe(_ element: AXUIElement) -> NativeLiveElementDescription {
+            let role = self.stringAttribute(element, kAXRoleAttribute as CFString)
+            return NativeLiveElementDescription(role: role, name: self.liveName(element, role: role), frame: self.frame(of: element))
+        }
+        func attempt(_ candidates: [AXUIElement]) -> [String: AXUIElement]? {
+            NativeTargetRebinder.rebind(chain: chain, window: window.element, candidates: candidates, describe: describe,
+                parent: { self.parent(of: $0) }, same: { CFEqual($0, $1) })
+        }
+        if let frame = target.frame {
+            var hit: AXUIElement?
+            if AXUIElementCopyElementAtPosition(application, Float(frame.midX), Float(frame.midY), &hit) == .success, let hit {
+                var path: [AXUIElement] = []
+                var current: AXUIElement? = hit
+                while let element = current, path.count < 80, !CFEqual(element, window.element) { path.append(element); current = self.parent(of: element) }
+                if let bound = attempt(path) { return bound }
+            }
+        }
+        var all: [AXUIElement] = []
+        var pending = [window.element]
+        while let element = pending.popLast(), all.count < 10_000 {
+            if (try? self.nativeCancellation?.check()) == nil, self.nativeCancellation != nil { return nil }
+            all.append(element)
+            pending.append(contentsOf: self.elementsAttribute(element, kAXChildrenAttribute as CFString))
+        }
+        // Only elements with the target's role can be it; the rest are not described.
+        return attempt(all.filter { self.stringAttribute($0, kAXRoleAttribute as CFString) == target.role })
+    }
+
     private func element(_ element: AXUIElement, belongsTo window: ApplicationSurfaceWindow) -> Bool {
         if let ancestor = self.accessibilityWindowAncestor(of: element), CFEqual(ancestor, window.element) { return true }
         if NativeWindowIdentity.read(element) == window.windowID && NativeWindowIdentity.read(window.element) == window.windowID { return true }
-        // A menu opened from this window (context menus via AXShowMenu) has its own
-        // Window Server window and parent chain. It belongs to this window only when
-        // its menu is the exact retained menu (native handle equality) observed
-        // inside this window's tree. Stale or unrelated menus remain rejected.
-        var candidate: AXUIElement? = element
-        for _ in 0..<8 {
-            guard let current = candidate else { break }
-            if self.stringAttribute(current, kAXRoleAttribute as CFString) == kAXMenuRole as String {
-                guard let id = self.snapshotElements.first(where: { CFEqual($0.value, current) })?.key,
-                      let root = self.snapshotWindows[window.windowID],
-                      (try? NativePointResolver.elementChain(root: root, elementID: id, allowOffscreen: true)) != nil else { return false }
-                return true
-            }
-            candidate = self.parent(of: current)
+        // UI hosted in its own Window Server window but listed inside this one (a
+        // context menu, Chrome's profile bubble) belongs to it only through an
+        // exact retained handle observed in this window's tree (NativeRelatedUI).
+        guard let root = self.snapshotWindows[window.windowID] else { return false }
+        return NativeRelatedUI.observedEntry(liveAncestry: self.retainedAncestry(of: element), root: root) != nil
+    }
+
+    /// Snapshot ids of an element and its live ancestors, nearest first (nil
+    /// where a handle is not retained). Retained handles match by CFEqual.
+    private func retainedAncestry(of element: AXUIElement) -> [String?] {
+        let retained = Dictionary(grouping: self.snapshotElements.map { ($0.key, $0.value) }, by: { CFHash($0.1) })
+        var ids: [String?] = []
+        var seen: [AXUIElement] = []
+        var current: AXUIElement? = element
+        while let candidate = current, ids.count < 80, !seen.contains(where: { CFEqual($0, candidate) }) {
+            seen.append(candidate)
+            ids.append(retained[CFHash(candidate)]?.first(where: { CFEqual($0.1, candidate) })?.0)
+            current = self.parent(of: candidate)
         }
-        return false
+        return ids
     }
 
     private func accessibilityElementAttribute(
