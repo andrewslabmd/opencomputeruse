@@ -13,7 +13,7 @@ test('real stdio adapter discovers schemas and routes tools through shared host'
   const client = new Broker(process.execPath, ['packages/cli/main.mjs', 'mcp'], { ...process.env, OCU_RUNTIME_DIR: directory });
   t.after(async () => { await client.stop(); await host.close(); await rm(directory, { recursive: true, force: true }); });
   const listing = await client.list();
-  assert.deepEqual(listing.tools.map(t => t.name).sort(), ['computer_use_observe', 'computer_use_action_batch', 'computer_use_permissions', 'computer_use_list_apps', 'computer_use_release', 'computer_use_status'].sort());
+  assert.deepEqual(listing.tools.map(t => t.name).sort(), ['computer_use_observe', 'computer_use_action_batch', 'computer_use_permissions', 'computer_use_list_apps', 'computer_use_release', 'computer_use_status', 'report_issue'].sort());
   const result = await client.call('computer_use_observe', { app_target: 'Fixture' });
   assert.equal(result.content[0].text, 'fixture result'); assert.equal(calls[0].name, 'use_observe');
   const invalid = await client.call('computer_use_action_batch', { actions: [{ kind: 'click', at: { x: 'wrong', y: 1 } }] });

@@ -10,6 +10,8 @@ Local agent processes receive observations and optional screenshots and may tran
 
 Application snapshots are held in engine memory; requested images are temporary. Diagnostic content must not include raw observations or credentials. The input audit journal (`input-audit.jsonl`) records delivery metadata only, never key content. No analytics or cloud endpoint is configured.
 
+Agents report Open Computer Use's own bugs with `report_issue`. It saves the report in `issue-reports.jsonl` in the runtime directory and returns a prefilled link to the public GitHub bug form; it never sends anything itself. The report holds what the agent wrote, the version, commit, macOS version, Mac model, the agent's client name and the names (and action kinds and error codes) of its last eight calls, never their arguments or results. The link replaces the home path, account name, email addresses and URL queries in the agent's text, a best effort only: the user reviews the form before submitting it, and only they can.
+
 The source is public under the Apache License 2.0. No binary release until bundled dependency notices, release identity, permission persistence, and native acceptance are verified.
 
 

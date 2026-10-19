@@ -87,7 +87,19 @@ session, after connecting it. Give the agent the operating guidance in
 
 Tools: `computer_use_list_apps`, `computer_use_observe`,
 `computer_use_action_batch`, `computer_use_permissions`,
-`computer_use_status` and `computer_use_release`.
+`computer_use_status`, `computer_use_release` and `report_issue`.
+
+`report_issue` is how agents report Open Computer Use's own bugs. An agent calls
+it once when a tool did not behave as documented and it had to work around it,
+then carries on. The report (summary, expected, what happened, workaround,
+severity, plus the version and commit, macOS version, Mac model, the agent's
+client name and the names of its last few calls, never their content) is saved
+in `~/Library/Application Support/Open Computer Use/issue-reports.jsonl`. The
+agent gets a link to this repository's
+[bug form](https://github.com/andrewslabmd/opencomputeruse/issues/new?template=bug_report.yml)
+already filled in. Nothing is sent: you check the form and decide whether to
+submit it. Reports go to this repository's public issues, so remove anything
+personal first.
 
 The same operations are available from the command line:
 

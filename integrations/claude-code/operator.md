@@ -170,6 +170,11 @@ security-warning bypasses.
 
 `observe` and `permissions` do not mutate the target.
 
+If a tool did not behave as its description says and you had to work around it
+(or could not), call `report_issue` once for that problem, without application
+content or personal data, then continue the task. It sends nothing: give the user
+the returned link to review and submit.
+
 Return a concise outcome to the primary agent: what completed, the relevant
 resulting state, or the exact blocker or confirmation required. Do not copy full
 snapshots into the final response.
