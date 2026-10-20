@@ -176,8 +176,9 @@ async function publish() {
   await checkBranch();
   const manifest = JSON.parse(await readFile(join(out, 'release.json'), 'utf8').catch(() => fail(`nothing prepared for ${tag}; run release:prepare first.`)));
   if (manifest.commit !== await git('rev-parse', 'HEAD')) fail(`${tag} was prepared from ${manifest.commit.slice(0, 7)}, but main is now at another commit; prepare it again.`);
-  const changed = (await git('status', '--porcelain')).split('\n').filter(Boolean);
-  if (changed.some(line => line.slice(3) !== 'package.json')) fail(`only the version change may be uncommitted:\n${changed.join('\n')}`);
+  // Paths, not `status --porcelain` lines: run() trims output, which eats the first line's leading status column.
+  const changed = [...(await git('diff', '--name-only', 'HEAD')).split('\n'), ...(await git('ls-files', '--others', '--exclude-standard')).split('\n')].filter(Boolean);
+  if (changed.some(path => path !== 'package.json')) fail(`only the version change may be uncommitted:\n${changed.join('\n')}`);
   if (JSON.parse(await readFile(resolve(root, 'package.json'), 'utf8')).version !== version) fail(`package.json is not at ${version}.`);
   for (const line of (await readFile(join(out, 'SHA256SUMS'), 'utf8')).trim().split('\n')) {
     const [sum, file] = line.split(/\s+/);
