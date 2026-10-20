@@ -1,119 +1,195 @@
-# Open Computer Use
+<p align="center">
+  <img src="assets/readme/icon.png" width="128" height="128" alt="">
+</p>
 
-Background computer use for AI agents on macOS. Open Computer Use is a small
-menu-bar app and local MCP server that lets agents such as Claude Code observe
-and operate native Mac apps while you keep working: it does not take your
-pointer, your keyboard or the foreground app.
+<h1 align="center">Open Computer Use</h1>
 
-Licensed under the [Apache License 2.0](LICENSE).
+<p align="center">
+  <strong>Codex-style computer use, for any AI agent on your Mac.</strong><br>
+  It works in the background, so you keep your pointer, your keyboard and the app you're in.
+</p>
 
-## Status
+<p align="center">
+  <a href="https://github.com/andrewslabmd/opencomputeruse/releases/latest/download/Open-Computer-Use.dmg"><strong>Download for Mac</strong></a>
+  ·
+  <a href="#get-started">Get started</a>
+  ·
+  <a href="#safety">Safety</a>
+  ·
+  <a href="#for-developers">For developers</a>
+</p>
 
-Early software; 0.1.0 is the first signed release. It requires macOS 15 or
-later and is tested on Apple silicon with a current macOS release; other
-versions and architectures are unvalidated.
+<p align="center">
+  <a href="https://github.com/andrewslabmd/opencomputeruse/releases/latest"><img src="https://img.shields.io/github/v/release/andrewslabmd/opencomputeruse?label=release&color=0969da" alt="Latest release"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/andrewslabmd/opencomputeruse?color=0969da" alt="Apache 2.0 license"></a>
+  <img src="https://img.shields.io/badge/macOS-15%2B%20%C2%B7%20Apple%20silicon-000000?logo=apple" alt="macOS 15 or later on Apple silicon">
+</p>
 
-## What it does
+---
 
-- **Observes** an app through macOS Accessibility: windows, controls, text,
-  selection and style, as compact JSON, plus an optional screenshot of the
-  app's own windows.
-- **Acts in the background** on exact observed controls: click, double/triple
-  and modifier clicks, right click, type, select text, scroll, drag, long
-  press, hotkeys, open, and any Accessibility action a control advertises.
-- **Keeps your input yours:** keystrokes and clicks go only to the target app's
-  process and window. The physical cursor never moves, and the foreground app
-  only changes if you change it.
-- **Runs several agents at once**, one per app. An agent asking for an app
-  another agent is using gets `busy`.
-- **Shows where agents act:** each agent gets its own colored pointer, name
-  and window highlight, drawn only above the window it works in, so it never
-  covers other apps. Turn it off with **Show agent cursors** in Settings.
-- **Shows when an agent is in control:** while any agent holds an app, the
-  menu-bar icon's ripples turn that agent's color and pulse.
-- **Estimates token use:** the menu bar shows roughly how many tokens each
-  agent's observations, screenshots and actions have cost it, and
-  `ocu status` reports the counts. These cover only Open Computer Use's part
-  of the conversation, not the agent's whole bill.
-- **Stop** in the menu bar stops every agent; nothing resumes until you choose
-  Resume.
+Codex can use the apps on your Mac in the background, without taking your
+mouse or keyboard. Open Computer Use brings that kind of computer use to every
+other agent. It's a small menu-bar app with a standard
+[MCP](https://modelcontextprotocol.io) server, so Claude, Cursor, OpenCode,
+Codex or an agent you built yourself can look at a Mac app, click, type and
+scroll in it, and check what happened.
 
-## Install
+All of it happens in the background. Your pointer doesn't move, what you type
+keeps going to the app you're in, and your window stays in front. You and your
+agent can work at the same time.
 
-Download
-[Open-Computer-Use.dmg](https://github.com/andrewslabmd/opencomputeruse/releases/latest/download/Open-Computer-Use.dmg)
-(macOS 15 or later, Apple silicon), open it and drag **Open Computer Use** to
-Applications. It is signed and notarized by Apple, and checks for updates
-daily, installing one only when you agree. Release notes are on the
-[releases page](https://github.com/andrewslabmd/opencomputeruse/releases).
+<p align="center">
+  <img src="assets/readme/demo.gif" width="800" alt="An agent selects a budget table in Numbers and inserts a stacked column chart. Its orange pointer, labeled claude-code, moves to each control it uses.">
+</p>
+<p align="center"><sub>Claude Code making a chart in Numbers. Numbers stayed behind other windows the whole time; the orange pointer is the agent's, not yours.</sub></p>
 
-Open it, then in the menu-bar app, use **Allow Accessibility…** and **Allow Screen
-Recording…** and turn on *Open Computer Use* in both lists (if it is already on
-but still not allowed, choose **Fix** in Settings → Permissions), and
-**Install CLI** to link `ocu` into `~/.local/bin`. `ocu permissions` shows the
-current state.
+## What you can ask
 
-### Build from source
+Tell your agent what you want, in your own words. It works out the steps.
 
-Requirements: macOS 15 or later on Apple silicon, Xcode command-line tools,
-Node.js and pnpm.
+> Click through every screen of the Mac app I just built and tell me what looks
+> broken.
 
-```sh
-git clone https://github.com/andrewslabmd/opencomputeruse.git
-cd opencomputeruse
-pnpm install --frozen-lockfile
-pnpm check
-pnpm build
-open -g "dist/Open Computer Use.app"
-```
+> Make a chart in Numbers that shows where my money went this quarter.
 
-`pnpm build` produces `dist/Open Computer Use.app`, signed with your Apple
-Development certificate when the Mac has one, so permissions survive rebuilds.
-Set `OCU_SIGN_IDENTITY` to choose another identity. Without either it is
-signed ad hoc, and macOS asks for permissions again after each rebuild.
+These are jobs with no script or API to fall back on. Your agent has to use
+the app the way a person does, and that's what Open Computer Use is for.
 
-Then grant permissions and install the CLI as above.
+## What you'll see
 
-## Connect an agent
+- **A cursor for each agent.** Every agent gets its own colored pointer and
+  name, drawn only over the window it's working in, never over your other
+  apps. Your real cursor never moves.
+- **A menu-bar icon that tells you who's in control.** While an agent is using
+  an app, the icon's ripples pulse in that agent's color.
+- **One big Stop button.** **Stop** in the menu bar halts every agent at once,
+  and nothing resumes until you choose **Resume**.
+- **Several agents at once.** Each works in its own app. If two want the same
+  app, the second is told it's busy.
+- **A rough token count.** The menu bar estimates what each agent's
+  observations, screenshots and actions are costing it (Open Computer Use's
+  share only, not the agent's whole bill).
 
-In the menu-bar app, open **Settings… → Connect an Agent** and choose
-**Connect** next to each coding agent found on your Mac. From a terminal:
+## Get started
 
-```sh
-ocu setup          # each agent's status; asks which to connect
-ocu setup codex    # connect one: claude, codex, cursor or opencode
-ocu setup cursor --remove
-ocu setup --print  # settings to add by hand to any other MCP client
-```
+1. **Download** [Open-Computer-Use.dmg](https://github.com/andrewslabmd/opencomputeruse/releases/latest/download/Open-Computer-Use.dmg),
+   open it and drag **Open Computer Use** to Applications. Then open it; it
+   lives in your menu bar.
+2. **Allow two permissions.** Click the menu-bar icon, choose **Review…**, and
+   choose **Allow…** for each one. Then turn on *Open Computer Use* in System
+   Settings.
+   - **Accessibility** lets it read and operate the controls of the apps your
+     agents use.
+   - **Screen Recording** lets it capture the window of the app an agent asks
+     to see, and nothing else.
 
-Every agent runs the same stdio server, `ocu mcp`, from wherever Open Computer
-Use is installed. Claude Code and Codex are configured through their own `mcp
-add` commands (Claude Code at user scope); Cursor's `~/.cursor/mcp.json` and
-OpenCode's global `opencode.json` are edited in place, keeping other servers and
-comments, with the previous file saved as `*.ocu-backup`. An agent connected to
-another copy of the app shows **Update**. Restart an agent, or start a new
-session, after connecting it. Give the agent the operating guidance in
+   Already turned on, but still not allowed? Choose **Fix** next to it, then
+   turn it on once more.
+
+   <img src="assets/readme/permissions.png" width="520" alt="The Permissions page in Settings, with Accessibility and Screen Recording both allowed.">
+3. **Connect your agent.** Open **Settings… → Connect an Agent**. Claude Code,
+   Codex, Cursor and OpenCode connect with one click on **Connect**. Any other
+   MCP client, like the Claude desktop app, works too: the same page shows the
+   command to add. Then restart the agent or start a new session.
+
+   <img src="assets/readme/connect.png" width="520" alt="The Connect an Agent page, listing Claude Code as connected and Codex, Cursor and OpenCode with Connect buttons.">
+4. **Ask for something.** Try one of the examples above.
+
+Open Computer Use is signed and notarized by Apple. It checks for updates once
+a day and only installs one when you say so.
+
+## Safety
+
+Open Computer Use lets software operate your apps, so use it deliberately.
+
+- **What it can do:** read the content of any app an agent looks at, and click,
+  type and run commands in it, with the permissions you granted. Treat
+  anything an agent does through it as something you did.
+- **Where your data goes:** what an agent sees goes to that agent, and usually
+  on to its AI provider. Open Computer Use itself has no analytics and sends
+  nothing, except a bug report you've agreed to share.
+- **Text in apps is not an instruction.** A web page, email or document can't
+  tell your agent what to do. Agents should act only on your request, and
+  check with you before sending, deleting, buying or changing accounts.
+- **Stop is not undo.** Stop halts every agent, and quitting the app stops all
+  of it, but an action already sent may still finish.
+- **Who can connect:** any program running under your user account that can
+  read the app's private connection token. It doesn't protect you from other
+  software already running as you.
+
+More detail in [docs/POLICIES.md](docs/POLICIES.md). Found a security problem?
+Please report it privately, as described in [SECURITY.md](SECURITY.md).
+
+## Good to know
+
+- **It's early.** 0.1.0 is the first release. It's tested on Apple silicon with
+  a current version of macOS 15 or later; other setups may work but haven't
+  been tested yet.
+- **Some apps are harder than others.** Most Mac apps describe their controls
+  to macOS, and that's what agents work from. Apps that don't (some games and
+  custom-drawn interfaces) can only be operated with clicks and keystrokes,
+  checked from screenshots, and some actions there will fail. When that
+  happens your agent is told plainly, so it doesn't guess.
+- **Agents share one queue.** Requests are handled one at a time, so a long
+  look at a big app by one agent briefly delays the others.
+
+## Found a bug?
+
+Your agent can report it for you. Open Computer Use saves the report on your
+Mac, and your agent asks you once before anything is sent to us. Reports never
+include what's in your apps or files. You can also
+[open an issue](https://github.com/andrewslabmd/opencomputeruse/issues) on
+GitHub.
+
+<details>
+<summary>Exactly what a bug report contains</summary>
+
+The `report_issue` tool saves reports in
+`~/Library/Application Support/Open Computer Use/issue-reports.jsonl`. Whether
+the agent or you notice the bug, the agent asks once whether to share it. Only
+after you say yes does it call the same tool with `{report_id, share: true}`,
+which sends it to the maintainers' private inbox for triage.
+
+A report holds what went wrong, versions, Mac model and chip, the agent client,
+and the names and outcomes of recent tool calls, never their arguments,
+results or any content from apps or files. Text redaction is best effort, so
+leave personal details out. If sending fails, the local copy stays.
+`OCU_REPORT_ENDPOINT` overrides the intake address for testing.
+
+</details>
+
+## For developers
+
+Open Computer Use is a menu-bar app plus a local
+[MCP](https://modelcontextprotocol.io) server. Every agent runs the same stdio
+server, `ocu mcp`, from wherever the app is installed.
+
+### Tools
+
+| Tool | What it does |
+| --- | --- |
+| `computer_use_list_apps` | Lists running apps and their windows |
+| `computer_use_observe` | Describes an app's windows and controls, with an optional screenshot of only that app |
+| `computer_use_action_batch` | Clicks, types, selects, scrolls, drags, presses keys and opens apps |
+| `computer_use_permissions` | Reports permission status; never asks for them |
+| `computer_use_status` | Shows the host, agents and token estimates |
+| `computer_use_release` | Hands an app back when the agent is done |
+| `report_issue` | Saves a bug report and sends it only after you agree |
+
+Give your agent the operating guidance in
 [integrations/claude-code/operator.md](integrations/claude-code/operator.md).
 
-Tools: `computer_use_list_apps`, `computer_use_observe`,
-`computer_use_action_batch`, `computer_use_permissions`,
-`computer_use_status`, `computer_use_release` and `report_issue`.
+### Command line
 
-`report_issue` saves Open Computer Use bug reports locally in
-`~/Library/Application Support/Open Computer Use/issue-reports.jsonl`. Whether
-the agent or you notice the bug, the agent asks once whether to share it with
-the developers. Only after you say yes does it call the same tool with
-`{report_id, share: true}` to send to the maintainers' private inbox for triage.
-The preview contains the report, versions, Mac model/chip, agent client and
-recent tool call names (including action kinds and outcomes), never call
-arguments, results or content from apps or files. Text redaction is best effort;
-leave out personal data. A failed send keeps the local copy. No link or form is
-needed; GitHub issue templates remain available for people who want to file publicly.
-`OCU_REPORT_ENDPOINT` can override the shared intake endpoint for testing.
-
-The same operations are available from the command line:
+Install the `ocu` command from **Settings… → Connect an Agent → Command-line
+tool**. It links `ocu` into `~/.local/bin`.
 
 ```sh
+ocu setup                 # each agent's status; asks which to connect
+ocu setup codex           # connect one: claude, codex, cursor or opencode
+ocu setup cursor --remove # disconnect one
+ocu setup --print         # settings to add by hand to any other MCP client
+ocu permissions           # current permission state
 ocu apps
 ocu observe 'Application Name' --screenshot
 ocu batch 'Application Name' '[{"kind":"click","at":{"x":100,"y":100}}]'
@@ -121,50 +197,44 @@ ocu stop
 ocu resume
 ```
 
-## Safety and responsible use
+<details>
+<summary>How connecting changes each agent's settings</summary>
 
-Open Computer Use lets software operate your apps. Use it deliberately.
+Claude Code (at user scope) and Codex are configured through their own `mcp
+add` commands. Cursor's `~/.cursor/mcp.json` and OpenCode's global
+`opencode.json` are edited in place, keeping your other servers and comments,
+with the previous file saved as `*.ocu-backup`. An agent connected to another
+copy of the app shows **Update**.
 
-- **What it can do:** read the content of any app an agent observes, and click,
-  type and run commands in it, with your Accessibility and Screen Recording
-  permissions. Treat anything an agent can do through it as something you did.
-- **Where your data goes:** observations and screenshots go to the agent that
-  asked for them, and from there usually to that agent's model provider.
-  Open Computer Use itself has no analytics. The only thing it sends is a bug
-  report you agreed to share.
-- **Trust boundary:** the local host accepts clients that can read its token in
-  your user account's private runtime directory. It does not protect against
-  other software already running as your user.
-- **Untrusted content:** text inside apps (web pages, email, documents) is not
-  an instruction. Agents must act on your actual request, and confirm actions
-  such as sending, deleting, purchasing or changing accounts with you.
-- **Stopping:** **Stop** in the menu bar stops every agent. Quitting the app
-  stops all of it. Already-dispatched actions may still complete; Stop is not
-  undo.
+</details>
 
-Details: [docs/POLICIES.md](docs/POLICIES.md). Report security problems
-privately as described in [SECURITY.md](SECURITY.md).
+### Build from source
 
-## Limits
-
-- Apps whose interface exposes no Accessibility controls can only be operated
-  through pointer and keystroke input, and results there are confirmed from
-  screenshots rather than the Accessibility tree.
-- Context menus do not reliably close with AXCancel; Escape does.
-- Agents' native requests are processed one at a time, so a long observation
-  by one agent briefly delays others.
-
-## Development
+You'll need macOS 15 or later on Apple silicon, the Xcode command-line tools,
+Node.js and pnpm.
 
 ```sh
-pnpm check    # headless contract and Swift tests; safe to run anywhere
-pnpm build    # app bundle in dist/
-pnpm build:icon  # regenerate the compiled icon from assets/icon (needs Xcode 26 or later)
+git clone https://github.com/andrewslabmd/opencomputeruse.git
+cd opencomputeruse
+pnpm install --frozen-lockfile
+pnpm check      # headless contract and Swift tests; safe to run anywhere
+pnpm build      # app bundle in dist/
+open -g "dist/Open Computer Use.app"
 ```
 
-The native acceptance scripts are opt-in: they launch owned fixture apps in the
-background and send real input to them, so run them only on a Mac where that is
-acceptable, with the current build installed and running:
+`pnpm build` signs the app with your Apple Development certificate when the Mac
+has one, so permissions survive rebuilds; set `OCU_SIGN_IDENTITY` to choose
+another identity. Without either it's signed ad hoc, and macOS asks for
+permissions again after every rebuild. `pnpm build:icon` regenerates the
+compiled icon from `assets/icon` (needs Xcode 26 or later).
+
+<details>
+<summary>Native acceptance tests</summary>
+
+These are opt-in: they launch owned fixture apps in the background and send
+real input to them, so run them only on a Mac where that's fine, with the
+current build installed and running. Each keeps its evidence in the ignored
+`work/` folder.
 
 ```sh
 node scripts/test-native-clicks.mjs --interactive       # clicks, actions, list_apps
@@ -178,29 +248,28 @@ node scripts/test-native.mjs --interactive              # basic native workflow
 node scripts/test-claude.mjs --interactive              # Claude Code end to end
 ```
 
-Each script keeps its evidence under the ignored `work/` folder.
+</details>
 
-### Layout
+### Project layout
 
-- `apps/macos`: SwiftUI/AppKit menu-bar app.
-- `packages/native`: the signed helper: Accessibility, capture and input.
-- `packages/engine`: one engine per agent: observations, actions, verification.
-- `packages/host`: shared local host, workflows and app claims.
-- `packages/protocol`: framing and the canonical tool schemas.
-- `packages/cli`, `packages/mcp`: command-line and MCP adapters.
-- `tests`: contract tests, Swift tests and native fixtures.
-- `upstream`: provenance of the code extracted from OpenCode Superapp.
+- `apps/macos`: the SwiftUI/AppKit menu-bar app
+- `packages/native`: the signed helper: Accessibility, capture and input
+- `packages/engine`: one engine per agent: observations, actions, verification
+- `packages/host`: the shared local host, workflows and app claims
+- `packages/protocol`: framing and the canonical tool schemas
+- `packages/cli`, `packages/mcp`: command-line and MCP adapters
+- `tests`: contract tests, Swift tests and native fixtures
+- `upstream`: provenance of the code extracted from OpenCode Superapp
 
-### Documentation
-
-[Product](docs/PRODUCT.md), [architecture](docs/ARCHITECTURE.md),
-[policies](docs/POLICIES.md), [design](DESIGN.md) and
+Deeper reading: [product](docs/PRODUCT.md),
+[architecture](docs/ARCHITECTURE.md), [policies](docs/POLICIES.md),
+[design](DESIGN.md) and the
 [Claude Code integration](integrations/claude-code/README.md).
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) and the
-[code of conduct](CODE_OF_CONDUCT.md).
+Contributions are welcome. Start with [CONTRIBUTING.md](CONTRIBUTING.md) and
+the [code of conduct](CODE_OF_CONDUCT.md).
 
 ## License
 
