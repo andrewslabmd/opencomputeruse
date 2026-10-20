@@ -22,7 +22,7 @@
 <p align="center">
   <a href="https://github.com/andrewslabmd/opencomputeruse/releases/latest"><img src="https://img.shields.io/github/v/release/andrewslabmd/opencomputeruse?label=release&color=0969da" alt="Latest release"></a>
   <a href="LICENSE"><img src="https://img.shields.io/github/license/andrewslabmd/opencomputeruse?color=0969da" alt="Apache 2.0 license"></a>
-  <img src="https://img.shields.io/badge/macOS-15%2B%20%C2%B7%20Apple%20silicon-000000?logo=apple" alt="macOS 15 or later on Apple silicon">
+  <img src="https://img.shields.io/badge/macOS-15%2B%20%C2%B7%20Apple%20silicon-0969da?logo=apple" alt="macOS 15 or later on Apple silicon">
 </p>
 
 ---
