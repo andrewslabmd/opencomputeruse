@@ -32,9 +32,10 @@ are built into every release, so changing either strands installed copies.
      --issuer "$(security find-generic-password -s com.medhue.ctrlmicro.release -a apple-api-issuer -w)"
    ```
 
-3. Back up the Sparkle private key to the password manager. Without it no
-   installed copy can be updated again. Export it to a file, store it, then
-   delete the file:
+3. Back up the Sparkle private key off the release Mac (done 2026-10-19; the
+   maintainer's records say where). Without it no installed copy can be
+   updated again. Export it straight to the backup location, and restore it
+   on a new Mac with `generate_keys --account opencomputeruse -f <file>`:
 
    ```sh
    .build/artifacts/sparkle/Sparkle/bin/generate_keys --account opencomputeruse -x ocu-sparkle.key
