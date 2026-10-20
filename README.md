@@ -9,10 +9,9 @@ Licensed under the [Apache License 2.0](LICENSE).
 
 ## Status
 
-Early, pre-release software. There are no downloadable builds yet; build it
-from source. It requires macOS 15 or later and is tested on Apple silicon with
-a current macOS release; other versions and architectures are unvalidated. The
-name and app identifiers may still change.
+Early software; 0.1.0 is the first signed release. It requires macOS 15 or
+later and is tested on Apple silicon with a current macOS release; other
+versions and architectures are unvalidated.
 
 ## What it does
 
@@ -41,6 +40,21 @@ name and app identifiers may still change.
 
 ## Install
 
+Download
+[Open-Computer-Use.dmg](https://github.com/andrewslabmd/opencomputeruse/releases/latest/download/Open-Computer-Use.dmg)
+(macOS 15 or later, Apple silicon), open it and drag **Open Computer Use** to
+Applications. It is signed and notarized by Apple, and checks for updates
+daily, installing one only when you agree. Release notes are on the
+[releases page](https://github.com/andrewslabmd/opencomputeruse/releases).
+
+Open it, then in the menu-bar app, use **Allow Accessibility…** and **Allow Screen
+Recording…** and turn on *Open Computer Use* in both lists (if it is already on
+but still not allowed, choose **Fix** in Settings → Permissions), and
+**Install CLI** to link `ocu` into `~/.local/bin`. `ocu permissions` shows the
+current state.
+
+### Build from source
+
 Requirements: macOS 15 or later on Apple silicon, Xcode command-line tools,
 Node.js and pnpm.
 
@@ -58,11 +72,7 @@ Development certificate when the Mac has one, so permissions survive rebuilds.
 Set `OCU_SIGN_IDENTITY` to choose another identity. Without either it is
 signed ad hoc, and macOS asks for permissions again after each rebuild.
 
-Then, in the menu-bar app, use **Allow Accessibility…** and **Allow Screen
-Recording…** and turn on *Open Computer Use* in both lists (if it is already on
-but still not allowed, choose **Fix** in Settings → Permissions), and
-**Install CLI** to link `ocu` into `~/.local/bin`. `ocu permissions` shows the
-current state.
+Then grant permissions and install the CLI as above.
 
 ## Connect an agent
 

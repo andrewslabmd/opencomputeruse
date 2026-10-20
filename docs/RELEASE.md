@@ -40,20 +40,22 @@ are built into every release, so changing either strands installed copies.
    .build/artifacts/sparkle/Sparkle/bin/generate_keys --account opencomputeruse -x ocu-sparkle.key
    ```
 
-## Before the first public release
+## First public release
 
-`docs/POLICIES.md` holds the binary release until these are verified:
+0.1.0 was published on 2026-10-19 with these gates:
 
 - [x] Bundled dependency notices: the Bun runtime inside `ocu`, `ocu-host` and
       `ocu-engine` and its transitive licenses are inventoried in
       `BUN_RUNTIME_NOTICES.md`, with links to the LGPL/MPL source and relinking
       steps (`OCU_BUN`). Upgrading Bun means redoing that inventory.
-- [ ] Release identity and permission persistence: a release build keeps its
-      Accessibility and Screen Recording grants across an update installed by
-      Sparkle (test with two prepared versions before publishing the first).
-- [ ] Native acceptance of the release build.
-- [ ] README Install section points to the download, and Status no longer says
-      there are no downloadable builds.
+- [x] Release identity and permission persistence, by identity: the app and
+      helper designated requirements are the bundle identifier plus the
+      Developer ID team, with no version or code hash, and were identical
+      between 0.1.0 and a 0.1.1 test build. A live grant, then a Sparkle update,
+      is still to be seen with 0.1.1.
+- [ ] Native acceptance of the release build: deferred by Mario for 0.1.0; the
+      development build carries the native acceptance so far.
+- [x] README Install section points to the download.
 
 ## Each release
 
