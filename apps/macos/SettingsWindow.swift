@@ -113,9 +113,11 @@ private struct OverviewPane: View {
                     }
                 }
             }
-            Section("Connected Agents") {
+            // Lists agents holding an app, like the menu panel; an idle
+            // connection is not shown, so the header can't say "Connected".
+            Section("Agents") {
                 if model.agents.isEmpty {
-                    LabeledContent("None") { Button("Connect an Agent…") { SettingsWindow.shared.show(.connect) } }
+                    LabeledContent("No agent is controlling your computer") { Button("Connect an Agent…") { SettingsWindow.shared.show(.connect) } }
                 } else {
                     ForEach(model.agents) { agent in
                         AgentLine(agent: agent)
