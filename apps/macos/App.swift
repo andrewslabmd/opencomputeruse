@@ -9,6 +9,8 @@ struct Agent: Identifiable, Equatable {
     let name: String
     /// The app it is working in, when it holds one.
     let app: String?
+    /// That app's process, for its icon.
+    var appPID: pid_t? = nil
     /// Its cursor color slot, when it holds an app.
     let slot: Int?
     /// A call is in flight (acting) rather than thinking between calls.
@@ -16,10 +18,32 @@ struct Agent: Identifiable, Equatable {
     /// Estimated tokens its calls have added to its context and written, this connection.
     var tokens = 0
     var color: Color { slot.map { Color(nsColor: AgentCursorView.palette[$0 % AgentCursorView.palette.count]) } ?? .secondary }
-    var detail: String {
-        let usage = tokens > 0 ? " · ~\(tokens.formatted(.number.notation(.compactName))) tokens" : ""
-        guard let app else { return "Connected" + usage }
-        return (busy ? "Working in \(app)" : "Thinking · \(app)") + usage
+    var activity: String {
+        guard let app else { return "Connected" }
+        return (busy ? "Working in " : "Thinking in ") + app
+    }
+    var usage: String? { tokens > 0 ? "~\(tokens.formatted(.number.notation(.compactName))) tokens" : nil }
+}
+
+/// The icon of the app an agent works in, badged with the agent's cursor
+/// color; just the color dot when the app has no icon.
+struct AgentIcon: View {
+    let agent: Agent
+    var size: CGFloat = 20
+
+    var body: some View {
+        if let icon = agent.appPID.flatMap({ NSRunningApplication(processIdentifier: $0)?.icon }) {
+            Image(nsImage: icon).resizable().frame(width: size, height: size)
+                .overlay(alignment: .bottomTrailing) {
+                    Circle().fill(agent.color)
+                        .overlay(Circle().stroke(Color(nsColor: .windowBackgroundColor), lineWidth: 1.5))
+                        .frame(width: size * 0.45, height: size * 0.45)
+                        .offset(x: size * 0.1, y: size * 0.1)
+                }
+                .accessibilityLabel(agent.app ?? "")
+        } else {
+            Circle().fill(agent.color).frame(width: size * 0.45, height: size * 0.45).frame(width: size, height: size)
+        }
     }
 }
 
@@ -153,10 +177,10 @@ final class HostModel: ObservableObject {
         health = paused ? .stopped : .ready
         hostPID = (state["pid"] as? NSNumber)?.int32Value
         // Each agent works in at most one app at a time.
-        var workflows: [String: (app: String, slot: Int?, busy: Bool)] = [:]
+        var workflows: [String: (app: String, pid: pid_t, slot: Int?, busy: Bool)] = [:]
         for workflow in state["workflows"] as? [[String: Any]] ?? [] {
             guard let client = workflow["client"] as? String, let pid = (workflow["app_pid"] as? NSNumber)?.int32Value else { continue }
-            workflows[client] = (NSRunningApplication(processIdentifier: pid)?.localizedName ?? "PID \(pid)",
+            workflows[client] = (NSRunningApplication(processIdentifier: pid)?.localizedName ?? "PID \(pid)", pid,
                 (workflow["slot"] as? NSNumber)?.intValue, workflow["busy"] as? Bool ?? false)
         }
         // Working: any agent holds an app, thinking or acting.
@@ -171,7 +195,7 @@ final class HostModel: ObservableObject {
             let workflow = workflows[id]
             let usage = client["usage"] as? [String: Any]
             let tokens = ["input_tokens", "output_tokens"].reduce(0) { $0 + ((usage?[$1] as? NSNumber)?.intValue ?? 0) }
-            return Agent(id: id, name: name, app: workflow?.app, slot: workflow?.slot, busy: workflow?.busy ?? false, tokens: tokens)
+            return Agent(id: id, name: name, app: workflow?.app, appPID: workflow?.pid, slot: workflow?.slot, busy: workflow?.busy ?? false, tokens: tokens)
         }
         if next != agents { agents = next }
     }

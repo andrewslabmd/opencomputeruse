@@ -72,8 +72,11 @@ private struct AgentLine: View {
     let agent: Agent
     var body: some View {
         HStack(spacing: 8) {
-            Circle().fill(agent.color).frame(width: 9, height: 9)
-            Text(agent.name)
+            AgentIcon(agent: agent, size: 24)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(agent.name)
+                Text(agent.activity).font(.caption).foregroundStyle(.secondary)
+            }
         }
     }
 }
@@ -115,7 +118,7 @@ private struct OverviewPane: View {
                     LabeledContent("None") { Button("Connect an Agent…") { SettingsWindow.shared.show(.connect) } }
                 } else {
                     ForEach(model.agents) { agent in
-                        LabeledContent { Text(agent.detail).foregroundStyle(.secondary) } label: { AgentLine(agent: agent) }
+                        AgentLine(agent: agent)
                     }
                 }
             }
@@ -145,7 +148,7 @@ private struct AgentsPane: View {
                     ForEach(model.agents) { agent in
                         LabeledContent {
                             HStack(spacing: 12) {
-                                Text(agent.detail).foregroundStyle(.secondary)
+                                if let usage = agent.usage { Text(usage).foregroundStyle(.secondary) }
                                 Button("Disconnect") { model.disconnect(agent) }
                             }
                         } label: { AgentLine(agent: agent) }

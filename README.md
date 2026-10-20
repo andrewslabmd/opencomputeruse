@@ -29,7 +29,7 @@ name and app identifiers may still change.
   another agent is using gets `busy`.
 - **Shows where agents act:** each agent gets its own colored pointer, name
   and window highlight, drawn only above the window it works in, so it never
-  covers other apps. Turn it off with **Show agent cursors** in the menu bar.
+  covers other apps. Turn it off with **Show agent cursors** in Settings.
 - **Shows when an agent is in control:** while any agent holds an app, the
   menu-bar icon's ripples turn that agent's color and pulse.
 - **Estimates token use:** the menu bar shows roughly how many tokens each
