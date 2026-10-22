@@ -122,7 +122,7 @@ Please report it privately, as described in [SECURITY.md](SECURITY.md).
 
 ## Good to know
 
-- **It's early.** 0.1.0 is the first release. It's tested on Apple silicon with
+- **It's early.** This is version 0.1. It's tested on Apple silicon with
   a current version of macOS 15 or later; other setups may work but haven't
   been tested yet.
 - **Some apps are harder than others.** Most Mac apps describe their controls
