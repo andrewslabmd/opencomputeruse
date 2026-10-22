@@ -7,56 +7,17 @@ Releases are made from the maintainer's Mac; CI is not involved.
 | What | Value |
 | --- | --- |
 | Identifiers | `com.andrewslabmd.opencomputeruse`, helper `….helper`; development builds add `.dev` |
-| Signing | Developer ID Application: MedHue Labs LLC (PGD5DTY3CY), hardened runtime, timestamped |
-| Notarization | App Store Connect API key in the `medhuelabs-notary` notarytool profile, shared by the team's apps |
-| Updates | Sparkle 2.9.4, EdDSA key in the login Keychain (account `opencomputeruse`), checks daily, installs only when the user agrees |
+| Signing | Developer ID, hardened runtime, timestamped, notarized |
+| Updates | Sparkle 2.9.4 with an EdDSA key, checks daily, installs only when the user agrees |
 | Update feed | `https://github.com/andrewslabmd/opencomputeruse/releases/latest/download/appcast.xml` |
 | Download | `https://github.com/andrewslabmd/opencomputeruse/releases/latest/download/Open-Computer-Use.dmg` |
 | Versions | `package.json` x.y.z; build number x×10000 + y×100 + z |
 
 These values live in `scripts/release-config.json`. The feed URL and public key
 are built into every release, so changing either strands installed copies.
-
-## One-time setup on the release Mac
-
-1. The Developer ID certificate is in the login Keychain
-   (`security find-identity -v -p codesigning`).
-2. Create the notary profile from the team's App Store Connect API key (the
-   same key CTRL Micro uses). This reads the key's location from CTRL Micro's
-   release Keychain items and stores a profile notarytool validates:
-
-   ```sh
-   xcrun notarytool store-credentials medhuelabs-notary \
-     --key "$(security find-generic-password -s com.medhue.ctrlmicro.release -a apple-api-key-path -w)" \
-     --key-id "$(security find-generic-password -s com.medhue.ctrlmicro.release -a apple-api-key-id -w)" \
-     --issuer "$(security find-generic-password -s com.medhue.ctrlmicro.release -a apple-api-issuer -w)"
-   ```
-
-3. Back up the Sparkle private key off the release Mac (done 2026-10-19; the
-   maintainer's records say where). Without it no installed copy can be
-   updated again. Export it straight to the backup location, and restore it
-   on a new Mac with `generate_keys --account opencomputeruse -f <file>`:
-
-   ```sh
-   .build/artifacts/sparkle/Sparkle/bin/generate_keys --account opencomputeruse -x ocu-sparkle.key
-   ```
-
-## First public release
-
-0.1.0 was published on 2026-10-19 with these gates:
-
-- [x] Bundled dependency notices: the Bun runtime inside `ocu`, `ocu-host` and
-      `ocu-engine` and its transitive licenses are inventoried in
-      `BUN_RUNTIME_NOTICES.md`, with links to the LGPL/MPL source and relinking
-      steps (`OCU_BUN`). Upgrading Bun means redoing that inventory.
-- [x] Release identity and permission persistence, by identity: the app and
-      helper designated requirements are the bundle identifier plus the
-      Developer ID team, with no version or code hash, and were identical
-      between 0.1.0 and a 0.1.1 test build. A live grant, then a Sparkle update,
-      is still to be seen with 0.1.1.
-- [ ] Native acceptance of the release build: deferred by Mario for 0.1.0; the
-      development build carries the native acceptance so far.
-- [x] README Install section points to the download.
+Releasing needs the Developer ID certificate, a notarytool profile and the
+Sparkle private key on the release Mac. Upgrading Bun means redoing the
+inventory in `BUN_RUNTIME_NOTICES.md`.
 
 ## Each release
 

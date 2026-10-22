@@ -8,7 +8,8 @@
 - UI: `DESIGN.md`
 - Build and checks: `README.md`
 - Release: `docs/RELEASE.md`
-- Remaining work: `docs/plans/implementation.md`
+- Internal notes, local only and ignored by Git: `docs/private/` (original plan,
+  marketing notes, release-Mac setup)
 - Reports: `report_issue` saves locally, asks the user once, and sends only
   after yes to the maintainers' private inbox for triage. GitHub issue templates
   remain for people who want to file publicly. No in-app form or error tracking.
