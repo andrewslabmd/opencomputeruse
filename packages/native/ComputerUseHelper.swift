@@ -2060,6 +2060,10 @@ private final class ComputerUseHelper {
 private enum ComputerUseHelperMain {
     static func main() {
         guard let arguments = HelperArguments(Array(CommandLine.arguments.dropFirst())) else {
+            // Started on its own, as macOS does for "Quit & Reopen" after a
+            // permission is granted: open the app that owns this helper so it
+            // comes back, instead of exiting with nothing on screen.
+            if CommandLine.arguments.count == 1, openOwningApp() { exit(0) }
             fputs("Open Computer Use Helper received invalid launch arguments.\n", stderr)
             exit(64)
         }
@@ -2071,5 +2075,24 @@ private enum ComputerUseHelperMain {
             fputs("Open Computer Use Helper failed: \(error.localizedDescription)\n", stderr)
             exit(1)
         }
+    }
+
+    /// The helper ships at <App>.app/Contents/Resources/<Helper>.app.
+    static func owningApp(of helper: URL) -> URL? {
+        let resources = helper.deletingLastPathComponent()
+        let contents = resources.deletingLastPathComponent()
+        let app = contents.deletingLastPathComponent()
+        guard resources.lastPathComponent == "Resources", contents.lastPathComponent == "Contents",
+              app.pathExtension == "app" else { return nil }
+        return app
+    }
+
+    private static func openOwningApp() -> Bool {
+        guard let app = owningApp(of: Bundle.main.bundleURL) else { return false }
+        let done = DispatchSemaphore(value: 0); var opened = false
+        NSWorkspace.shared.openApplication(at: app, configuration: NSWorkspace.OpenConfiguration()) { running, _ in
+            opened = running != nil; done.signal()
+        }
+        return done.wait(timeout: .now() + 10) == .success && opened
     }
 }
