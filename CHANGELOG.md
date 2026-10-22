@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.2 — 2026-10-21
+
+[After allowing Screen Recording](https://github.com/andrewslabmd/opencomputeruse/releases/tag/v0.1.2),
+Quit & Reopen brings the app back; before, it stayed closed.
+
 ## 0.1.1 — 2026-10-21
 
 [Settings → Overview](https://github.com/andrewslabmd/opencomputeruse/releases/tag/v0.1.1)
