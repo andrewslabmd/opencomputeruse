@@ -57,14 +57,23 @@ async function notarize(path, label) {
     fail(`Apple did not accept ${label}.`);
   }
 }
-// Release notes in Markdown, as the small HTML Sparkle shows: list items and paragraphs.
+// Release notes in Markdown, as the small HTML Sparkle shows: list items and
+// paragraphs. A wrapped line continues the item or paragraph above it.
 function notesHtml(markdown) {
-  const html = []; let list = false;
-  for (const line of markdown.split('\n').map(l => l.trim()).filter(l => l && !l.startsWith('#'))) {
+  const blocks = [];
+  for (const raw of markdown.split('\n')) {
+    const line = raw.trim(); const last = blocks.at(-1);
+    if (!line || line.startsWith('#')) { if (last) last.open = false; continue; }
     const item = line.match(/^[-*] (.*)$/);
-    if (item && !list) { html.push('<ul>'); list = true; }
-    if (!item && list) { html.push('</ul>'); list = false; }
-    html.push(item ? `<li>${escape(item[1])}</li>` : `<p>${escape(line)}</p>`);
+    if (item) blocks.push({ kind: 'li', text: item[1], open: true });
+    else if (last?.open) last.text += ` ${line}`;
+    else blocks.push({ kind: 'p', text: line, open: true });
+  }
+  const html = []; let list = false;
+  for (const { kind, text } of blocks) {
+    if (kind === 'li' && !list) { html.push('<ul>'); list = true; }
+    if (kind === 'p' && list) { html.push('</ul>'); list = false; }
+    html.push(`<${kind}>${escape(text)}</${kind}>`);
   }
   if (list) html.push('</ul>');
   return html.join('');
