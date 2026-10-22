@@ -187,6 +187,11 @@ protocol NativeInteractionAccess {
     func inputText(_ id: String, _ text: String) throws -> String
     /// Window-bound, process-directed left-button input to the receiver's window.
     func pointerGesture(_ id: String, _ gesture: NativePointerGesture) throws -> String
+    /// The system drag pasteboard's change count, read before a pointer drag.
+    func dragSessionMarker() -> Int
+    /// Whether an app began a system drag-and-drop session (wrote the drag
+    /// pasteboard) since the marker. Read after a pointer drag was posted.
+    func dragSessionStarted(since marker: Int) -> Bool
     /// Whether the app's keyboard focus is one of these elements, or nothing.
     func keyboardFocusWithin(_ ids: [String]) throws -> Bool
     /// Text as process-directed keystrokes while focus stays within these elements.
@@ -207,6 +212,8 @@ protocol NativeInteractionAccess {
 }
 
 extension NativeInteractionAccess {
+    func dragSessionMarker() -> Int { 0 }
+    func dragSessionStarted(since marker: Int) -> Bool { false }
     func refreshAfterMutation(_ node: NativeInteractionNode) throws -> NativeInteractionNode {
         try validate(node); return node
     }
@@ -472,9 +479,20 @@ struct NativeInteractionExecutor {
             func pointerGesture(_ node: NativeInteractionNode, _ gesture: NativePointerGesture) throws -> NativeInteractionResult {
                 try validate(node)
                 try requireActivation()
+                let dragMarker = gesture.points.count > 1 ? access.dragSessionMarker() : nil
                 result.input_trace_ids = [try access.pointerGesture(node.id, gesture)]
                 result.element_id = node.id; result.behavior = gesture.behavior; result.status = "sent"; result.effect = gesture.behavior + "_sent"
                 result.operations.append(.init(receiver_id: node.id, kind: "pointer", name: gesture.name, native_error: nil, outcome: "dispatched"))
+                // Drag-and-drop (Finder items, table rows, dragged text) runs as a
+                // system drag session that the Window Server tracks with the real
+                // pointer and button, which process-bound input never moves or
+                // presses. The source's own mouse tracking (swipes, sliders,
+                // canvases) is unaffected. The session cannot reach the drop
+                // target, so the drag is reported unsupported, never as sent.
+                if let dragMarker, access.dragSessionStarted(since: dragMarker) {
+                    result.status = "failed"; result.code = "drag_and_drop_unsupported"; result.effect = "drag_session_started"
+                    result.error = "The app began a system drag-and-drop session. macOS tracks drag-and-drop with the real pointer, which Open Computer Use never moves, so the drop does not reach the destination in the background. Check the destination before assuming anything moved. Use the app's own commands instead (in Finder: select the item, cmd+c, open the destination, cmd+v; cmd+option+v moves)."
+                }
                 return result
             }
             func pointerPoint(_ node: NativeInteractionNode) -> CGPoint {

@@ -119,6 +119,17 @@ struct AXNativeInteractionAccess: NativeInteractionAccess {
             try requireActive()
         }
     }
+    func dragSessionMarker() -> Int { NSPasteboard(name: .drag).changeCount }
+    func dragSessionStarted(since marker: Int) -> Bool {
+        // The source writes the drag pasteboard as it begins the session, while
+        // it handles the posted moves; allow it a moment to handle the last ones.
+        let until = Date(timeIntervalSinceNow: 0.15)
+        while true {
+            if NSPasteboard(name: .drag).changeCount != marker { return true }
+            if Date() >= until { return false }
+            Thread.sleep(forTimeInterval: 0.01)
+        }
+    }
     func keyboardFocusWithin(_ ids: [String]) throws -> Bool {
         guard let first = ids.first else { return false }
         var pid: pid_t = 0

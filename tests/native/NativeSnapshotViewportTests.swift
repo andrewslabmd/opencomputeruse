@@ -9,6 +9,12 @@ final class NativeSnapshotViewportTests: XCTestCase {
         XCTAssertNil(NativeSnapshotViewport.children(role:"AXSheet",frame:sheet,inherited:owner))
         XCTAssertNil(NativeSnapshotViewport.children(role:"AXMenu",frame:sheet,inherited:owner))
     }
+    func testAContextMenuListedInsideAScrollViewportIsNotClippedByIt() {
+        let iconView=CGRect(x:100,y:100,width:300,height:200)
+        XCTAssertNil(NativeSnapshotViewport.own(role:"AXMenu",inherited:iconView))
+        XCTAssertNil(NativeSnapshotViewport.own(role:"AXSheet",inherited:iconView))
+        XCTAssertEqual(NativeSnapshotViewport.own(role:"AXImage",inherited:iconView),iconView)
+    }
     func testNestedScrollViewportsCannotExposeClippedContent() {
         let outer=CGRect(x:100,y:100,width:200,height:200)
         let inner=CGRect(x:0,y:0,width:400,height:400)

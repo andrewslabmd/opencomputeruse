@@ -1682,7 +1682,7 @@ private final class ComputerUseHelper {
             attributes.string("AXIdentifier")
         )
         let rawFrame = attributes.frame
-        let isOffscreen = rawFrame.map { frame in input.clipRect.map { !$0.intersects(frame) } ?? false } ?? false
+        let isOffscreen = rawFrame.map { frame in NativeSnapshotViewport.own(role: role, inherited: input.clipRect).map { !$0.intersects(frame) } ?? false } ?? false
 
         if role == kAXStaticTextRole as String, name == nil {
             return nil

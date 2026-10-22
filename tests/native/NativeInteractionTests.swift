@@ -9,6 +9,9 @@ private final class FakeNativeAccess: NativeInteractionAccess {
     var active=true
     func appActive()throws -> Bool {active}
     var gestures=[NativePointerGesture]()
+    var dragSession=false
+    func dragSessionMarker() -> Int {7}
+    func dragSessionStarted(since marker:Int) -> Bool {XCTAssertEqual(marker,7);return dragSession}
     func pointerGesture(_ id:String,_ gesture:NativePointerGesture)throws -> String {
         gestures.append(gesture)
         pointerCalls.append(id+"@"+gesture.points.map{"\(Int($0.x)),\(Int($0.y))"}.joined(separator:"->")+(gesture.duration>0 ? "/\(Int(gesture.duration*1000))ms" : ""))
@@ -189,6 +192,18 @@ final class NativeInteractionTests: XCTestCase {
         action.duration=0.12
         _=try NativeInteractionExecutor(access:access).execute(action,chain:[node("surface","AXGroup")])
         XCTAssertEqual(access.pointerCalls.last,"surface@80,20->10,20/120ms")
+    }
+    func testPointerDragThatBeginsASystemDragSessionIsReportedUnsupportedNotSent() throws {
+        let access=FakeNativeAccess();access.dragSession=true
+        var action=NativeInteractionAction(kind:"drag",point:CGPoint(x:80,y:20),destination:CGPoint(x:10,y:20));action.pointer=true
+        let result=try NativeInteractionExecutor(access:access).execute(action,chain:[node("icon","AXImage"),node("window","AXWindow")])
+        XCTAssertEqual(access.pointerCalls,["icon@80,20->10,20/300ms"]);XCTAssertEqual(result.status,"failed")
+        XCTAssertEqual(result.code,"drag_and_drop_unsupported");XCTAssertEqual(result.effect,"drag_session_started")
+        XCTAssertEqual(result.input_trace_ids,["fake-pointer-trace"]);XCTAssertEqual(result.operations.map(\.outcome),["dispatched"])
+        // A click or long press never consults the drag pasteboard.
+        access.dragSession=true
+        var click=NativeInteractionAction(kind:"click",point:CGPoint(x:80,y:20));click.pointer=true
+        XCTAssertEqual(try NativeInteractionExecutor(access:access).execute(click,chain:[node("icon","AXImage")]).status,"sent")
     }
     func testDragOnANativeNonControlNeedsExplicitPointerButWebContentUsesItAutomatically() throws {
         let access=FakeNativeAccess()

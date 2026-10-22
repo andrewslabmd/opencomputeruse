@@ -5,8 +5,15 @@ import Foundation
 // extend past their owning window. Only scroll viewports clip their content;
 // nested scroll viewports inherit the intersection, not a fresh larger region.
 enum NativeSnapshotViewport {
+    static let independent: Set<String> = ["AXWindow", "AXSheet", "AXMenu"]
+    /// The clipping that applies to a node itself. Independent UI listed under
+    /// a scroll viewport (Finder lists an icon's context menu inside its icon
+    /// view) is not clipped by it.
+    static func own(role: String, inherited: CGRect?) -> CGRect? {
+        independent.contains(role) ? nil : inherited
+    }
     static func children(role: String, frame: CGRect?, inherited: CGRect?) -> CGRect? {
-        if ["AXWindow", "AXSheet", "AXMenu"].contains(role) { return nil }
+        if independent.contains(role) { return nil }
         guard role == "AXScrollArea", let frame else { return inherited }
         return inherited.map { $0.intersection(frame) } ?? frame
     }
