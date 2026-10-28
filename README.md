@@ -92,11 +92,82 @@ the app the way a person does, and that's what Open Computer Use is for.
    MCP client, like the Claude desktop app, works too: the same page shows the
    command to add. Then restart the agent or start a new session.
 
+   For VS Code, Gemini CLI or Claude Desktop, see [manual setup](#manual-agent-setup).
+
    <img src="assets/readme/connect.png" width="520" alt="The Connect an Agent page, listing Claude Code as connected and Codex, Cursor and OpenCode with Connect buttons.">
 4. **Ask for something.** Try one of the examples above.
 
 Open Computer Use is signed and notarized by Apple. It checks for updates once
 a day and only installs one when you say so.
+
+## Manual agent setup
+
+These examples run the same stdio server as the app's **Connect** button:
+`ocu mcp`. They assume you installed the app in `/Applications`. If it's
+somewhere else, use the executable path shown in **Settings… → Connect an
+Agent → Other MCP Clients** as `command`.
+
+If the config file already has other settings or servers, add the
+`opencomputeruse` entry to the existing object and keep the rest.
+
+### VS Code (GitHub Copilot agent mode)
+
+In a local VS Code window on your Mac, add this to `.vscode/mcp.json` in your
+project. For all workspaces, run **MCP: Open User Configuration** from the
+Command Palette and add it to that `mcp.json` instead.
+
+```json
+{
+  "servers": {
+    "opencomputeruse": {
+      "type": "stdio",
+      "command": "/Applications/Open Computer Use.app/Contents/MacOS/ocu",
+      "args": ["mcp"]
+    }
+  }
+}
+```
+
+VS Code still supports this format, though its setup flow labels it deprecated.
+Run **MCP: List Servers**, select `opencomputeruse` and start it. Approve the
+server when prompted, then use Copilot Chat in Agent mode.
+
+### Gemini CLI
+
+Add this to `~/.gemini/settings.json` for all projects, or
+`.gemini/settings.json` in one project:
+
+```json
+{
+  "mcpServers": {
+    "opencomputeruse": {
+      "command": "/Applications/Open Computer Use.app/Contents/MacOS/ocu",
+      "args": ["mcp"]
+    }
+  }
+}
+```
+
+Restart Gemini CLI, then run `/mcp` to check that `opencomputeruse` is connected.
+
+### Claude Desktop
+
+Open **Claude → Settings… → Developer → Edit Config**. On your Mac, this
+opens `~/Library/Application Support/Claude/claude_desktop_config.json`.
+Add:
+
+```json
+{
+  "mcpServers": {
+    "opencomputeruse": {
+      "command": "/Applications/Open Computer Use.app/Contents/MacOS/ocu",
+      "args": ["mcp"]
+    }
+  }
+}
+```
+
+Save the file, fully quit Claude Desktop and open it again to load the server.
 
 ## Safety
 
