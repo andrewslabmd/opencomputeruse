@@ -1,0 +1,16 @@
+{
+  "name": "opencomputeruse",
+  "description": "Open Computer Use for Claude Code: background Mac app control over MCP.",
+  "owner": {
+    "name": "Andrew's Lab MD",
+    "url": "https://github.com/andrewslabmd"
+  },
+  "plugins": [
+    {
+      "name": "opencomputeruse",
+      "source": "./integrations/claude-code/plugin",
+      "description": "Use Mac apps in the background without taking over your mouse or keyboard.",
+      "version": "0.1.2"
+    }
+  ]
+}

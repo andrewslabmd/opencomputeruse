@@ -102,6 +102,8 @@ a day and only installs one when you say so.
 
 ## Manual agent setup
 
+Claude Code users can also install the [Open Computer Use plugin](integrations/claude-code/plugin/README.md).
+
 These examples run the same stdio server as the app's **Connect** button:
 `ocu mcp`. They assume you installed the app in `/Applications`. If it's
 somewhere else, use the executable path shown in **Settings… → Connect an

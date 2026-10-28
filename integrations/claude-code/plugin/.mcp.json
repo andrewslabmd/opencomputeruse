@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "opencomputeruse": {
+      "type": "stdio",
+      "command": "/Applications/Open Computer Use.app/Contents/MacOS/ocu",
+      "args": ["mcp"]
+    }
+  }
+}
