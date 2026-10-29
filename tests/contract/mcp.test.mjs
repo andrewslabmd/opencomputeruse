@@ -1,10 +1,39 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { spawnSync } from 'node:child_process';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { Host } from '../../packages/host/server.mjs';
 import { Broker } from '../../packages/host/broker.mjs';
+
+test('source and compiled MCP handshakes report the app release version', async t => {
+  const root = fileURLToPath(new URL('../..', import.meta.url));
+  const { version } = JSON.parse(await readFile(join(root, 'package.json'), 'utf8'));
+  const directory = await mkdtemp(join(tmpdir(), 'ocu-version-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const executable = join(directory, 'ocu');
+  // Compile the same CLI entry point as scripts/build.mjs, for the test host.
+  const build = spawnSync(join(root, 'node_modules/.bin/bun'), ['build', '--compile', 'packages/cli/main.mjs', '--outfile', executable], { cwd: root, encoding: 'utf8', timeout: 60_000 });
+  assert.ifError(build.error);
+  assert.equal(build.status, 0, build.stderr);
+  for (const [command, args] of [[process.execPath, [join(root, 'packages/cli/main.mjs'), 'mcp']], [executable, ['mcp']]]) {
+    // Initialize needs no host or native actions. Run away from the checkout;
+    // the compiled executable must carry its version without a package.json.
+    const response = spawnSync(command, args, {
+      cwd: directory, encoding: 'utf8', timeout: 10_000,
+      env: { ...process.env, OCU_RUNTIME_DIR: directory },
+      input: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'version-test', version: '1' } } }) + '\n',
+    });
+    assert.ifError(response.error);
+    assert.equal(response.status, 0, response.stderr);
+    const message = JSON.parse(response.stdout.trim());
+    assert.equal(message.id, 1);
+    assert.deepEqual(message.result.serverInfo, { name: 'opencomputeruse', version });
+  }
+});
+
 test('real stdio adapter discovers schemas and routes tools through shared host', async t => {
   const directory = await mkdtemp(join(tmpdir(), 'ocu-mcp-'));
   const calls = [];
