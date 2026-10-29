@@ -109,6 +109,14 @@ enum NativePointResolver {
 // the element itself or one of its live ancestors. Stale or unrelated UI,
 // whose handles were never observed there, remains rejected.
 enum NativeRelatedUI {
+    // Some menu providers expose different handles through AXParent and
+    // AXChildren. The reverse edge must still contain this exact live target
+    // (or its ancestor); names, roles and snapshot membership are not proof.
+    static func menuContains<Handle>(ancestry: [Handle], children: [Handle],
+        equal: (Handle, Handle) -> Bool) -> Bool {
+        ancestry.contains { ancestor in children.contains { equal(ancestor, $0) } }
+    }
+
     /// liveAncestry: the snapshot ids of the element and its live ancestors,
     /// nearest first; nil where a live handle is not retained.
     static func observedEntry(liveAncestry: [String?], root: NativeInteractionNode) -> String? {

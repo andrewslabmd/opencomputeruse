@@ -1123,6 +1123,13 @@ private final class ComputerUseHelper {
                         ancestor = self.parent(of: a)
                     }
                 }
+                if !related, node.role == "AXMenu" {
+                    // Finder's menu children can report a different AXParent menu
+                    // handle. Prove membership with the retained menu's live children.
+                    related = NativeRelatedUI.menuContains(ancestry: self.liveAncestry(of: hit),
+                        children: self.elementsAttribute(element, kAXChildrenAttribute as CFString),
+                        equal: { CFEqual($0, $1) })
+                }
                 if !related, self.accessibilityWindowAncestor(of: hit).map({ !CFEqual($0, window.element) }) ?? true {
                     // UI hosted in its own native window (a context menu, Chrome's
                     // toolbar bubble) has a parent chain that does not reach the
@@ -1230,8 +1237,9 @@ private final class ComputerUseHelper {
         }
         let focused = try read("AXFocusedUIElement")
         if let focused, let windowID = NativeWindowIdentity.read(focused) {
-            guard windows[windowID] != nil else { return nil }
-            return NativeKeyboardReceiver(windowID: windowID, focusedElement: focused)
+            if windows[windowID] != nil {
+                return NativeKeyboardReceiver(windowID: windowID, focusedElement: focused)
+            }
         }
         let focusWindow: AXUIElement?
         if let ancestor = focused.flatMap({ accessibilityWindowAncestor(of: $0) }) {
@@ -1240,8 +1248,47 @@ private final class ComputerUseHelper {
         let windowID = focused.flatMap(NativeWindowIdentity.read)
             ?? focusWindow.flatMap(NativeWindowIdentity.read)
             ?? focusWindow.flatMap { window in windows.first { CFEqual($0.value, window) }?.key }
-        guard let windowID, windows[windowID] != nil else { return nil }
-        return NativeKeyboardReceiver(windowID: windowID, focusedElement: focused)
+        if let windowID {
+            if windows[windowID] != nil {
+                return NativeKeyboardReceiver(windowID: windowID, focusedElement: focused)
+            }
+        }
+        // Finder clears AXFocusedWindow and focuses AXApplication while tracking
+        // a context menu. Retain the one live menu inside the allowed window
+        // tree, including its exact handle; never fall back to an arbitrary window.
+        var menus: [NativeKeyboardMenu<AXUIElement>] = []
+        for (id, root) in windows {
+            var pending = [root], seen: [CFHashCode: [AXUIElement]] = [:], count = 0
+            while let candidate = pending.popLast() {
+                try nativeCancellation?.check()
+                let hash = CFHash(candidate)
+                guard !(seen[hash]?.contains(where: { CFEqual($0, candidate) }) ?? false) else { continue }
+                seen[hash, default: []].append(candidate); count += 1
+                guard count <= 10_000 else { return nil }
+                guard let role = stringAttribute(candidate, kAXRoleAttribute as CFString) else { return nil }
+                var rawChildren: CFTypeRef?
+                let error = AXUIElementCopyAttributeValue(candidate, kAXChildrenAttribute as CFString, &rawChildren)
+                guard [.success, .noValue, .attributeUnsupported, .notImplemented].contains(error) else {
+                    throw NativeInteractionFailure(code: "keyboard_receiver_unavailable",
+                        message: "Reading live menu children failed (AXError \(error.rawValue)).")
+                }
+                // An incomplete scan cannot prove that this is the only menu.
+                if error == .success, rawChildren != nil, !(rawChildren is [AXUIElement]) { return nil }
+                let children = rawChildren as? [AXUIElement] ?? []
+                if role == "AXMenu" {
+                    // Hidden submenus are excluded, and the top menu owns their keys.
+                    var visible = false
+                    for child in children {
+                        guard let frame = self.frame(of: child) else { return nil }
+                        if frame.width > 0 && frame.height > 0 { visible = true }
+                    }
+                    if visible { menus.append(NativeKeyboardMenu(windowID: id, element: candidate, children: children)) }
+                } else { pending.append(contentsOf: children) }
+            }
+        }
+        return NativeKeyboardReceiver.trackingMenu(menus, focused: focused, application: app,
+            focusedWindow: focusWindow, ancestry: { self.liveAncestry(of: $0) },
+            equal: { CFEqual($0, $1) })
     }
 
     private func checkedKeyboardReceiver(_ request: HelperRequest) throws -> NativeKeyboardReceiver<AXUIElement> {
@@ -1625,15 +1672,19 @@ private final class ComputerUseHelper {
     /// where a handle is not retained). Retained handles match by CFEqual.
     private func retainedAncestry(of element: AXUIElement) -> [String?] {
         let retained = Dictionary(grouping: self.snapshotElements.map { ($0.key, $0.value) }, by: { CFHash($0.1) })
-        var ids: [String?] = []
+        return liveAncestry(of: element).map { candidate in
+            retained[CFHash(candidate)]?.first(where: { CFEqual($0.1, candidate) })?.0
+        }
+    }
+
+    private func liveAncestry(of element: AXUIElement) -> [AXUIElement] {
         var seen: [AXUIElement] = []
         var current: AXUIElement? = element
-        while let candidate = current, ids.count < 80, !seen.contains(where: { CFEqual($0, candidate) }) {
+        while let candidate = current, seen.count < 80, !seen.contains(where: { CFEqual($0, candidate) }) {
             seen.append(candidate)
-            ids.append(retained[CFHash(candidate)]?.first(where: { CFEqual($0.1, candidate) })?.0)
             current = self.parent(of: candidate)
         }
-        return ids
+        return seen
     }
 
     private func accessibilityElementAttribute(

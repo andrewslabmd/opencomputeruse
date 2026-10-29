@@ -237,6 +237,16 @@ final class NativeInteractionTests: XCTestCase {
         XCTAssertEqual(try NativeInteractionExecutor(access:access).execute(press,chain:chain).code,"native_target_changed")
         XCTAssertEqual(access.pointerCalls,["item@400,14"]);XCTAssertTrue(access.calls.isEmpty)
     }
+    func testMenuMembershipUsesLiveChildrenWhenFinderReportsADifferentParentHandle() {
+        XCTAssertTrue(NativeRelatedUI.menuContains(ancestry: ["open", "alternate-menu", "list"],
+            children: ["open", "show-original"], equal: ==))
+        XCTAssertTrue(NativeRelatedUI.menuContains(ancestry: ["text", "menu-item", "alternate-menu"],
+            children: ["menu-item"], equal: ==))
+        XCTAssertFalse(NativeRelatedUI.menuContains(ancestry: ["old-open", "old-menu", "list"],
+            children: ["new-open"], equal: ==))
+        XCTAssertFalse(NativeRelatedUI.menuContains(ancestry: ["open", "alternate-menu"],
+            children: [String](), equal: ==))
+    }
     func testUIHostedInItsOwnWindowBelongsOnlyThroughAHandleObservedInThisWindow() {
         // A window-scoped Chrome observation lists the profile bubble's dialog under
         // the browser window, while the bubble's live parents end at its own window.

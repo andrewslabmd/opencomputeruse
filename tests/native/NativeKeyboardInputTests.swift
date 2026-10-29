@@ -12,6 +12,38 @@ final class NativeKeyboardInputTests:XCTestCase{
         XCTAssertThrowsError(try expected.validate(nil,equal:==))
         XCTAssertThrowsError(try expected.validate(.init(windowID:7,focusedElement:nil),equal:==))
     }
+    func testMenuReceiverRejectsDismissedReplacedOrOtherWindowMenus() throws {
+        let expected = NativeKeyboardReceiver(windowID: 7, focusedElement: "application", menu: "context-menu")
+        try expected.validate(.init(windowID: 7, focusedElement: "application", menu: "context-menu"), equal: ==)
+        XCTAssertThrowsError(try expected.validate(.init(windowID: 7, focusedElement: "application"), equal: ==))
+        XCTAssertThrowsError(try expected.validate(.init(windowID: 7, focusedElement: "application", menu: "replacement-menu"), equal: ==))
+        XCTAssertThrowsError(try expected.validate(.init(windowID: 8, focusedElement: "application", menu: "context-menu"), equal: ==))
+        XCTAssertThrowsError(try expected.validate(.init(windowID: 7, focusedElement: "search-field", menu: "context-menu"), equal: ==))
+        let withoutMenu = NativeKeyboardReceiver(windowID: 7, focusedElement: "application")
+        XCTAssertFalse(withoutMenu.matches(expected, equal: ==))
+    }
+    func testTrackingMenuResolvesFinderApplicationFocusAndItsOwnSearchFieldOnly() throws {
+        let menu = NativeKeyboardMenu(windowID: 7, element: "context-menu", children: ["search", "open"])
+        func resolve(_ focused: String?, window: String? = nil,
+                     menus: [NativeKeyboardMenu<String>] = [menu], path: [String] = []) -> NativeKeyboardReceiver<String>? {
+            NativeKeyboardReceiver.trackingMenu(menus, focused: focused, application: "finder",
+                focusedWindow: window, ancestry: { path.isEmpty ? [$0] : path }, equal: ==)
+        }
+        let appReceiver = try XCTUnwrap(resolve("finder"))
+        XCTAssertEqual(appReceiver.windowID, 7); XCTAssertEqual(appReceiver.menu, "context-menu")
+        XCTAssertEqual(appReceiver.focusedElement, "finder")
+        XCTAssertNotNil(resolve(nil)); XCTAssertNotNil(resolve("context-menu"))
+        // The menu search field can have an alternate AXParent and its own window.
+        XCTAssertNotNil(resolve("search", window: "menu-window"))
+        XCTAssertNotNil(resolve("search-text", window: "menu-window", path: ["search-text", "search", "alternate-menu"]))
+        XCTAssertNil(resolve("other-app-field")); XCTAssertNil(resolve("old-search"))
+        XCTAssertNil(resolve("finder", window: "unrelated-window"))
+        XCTAssertNil(resolve(nil, window: "unrelated-window"))
+        XCTAssertNil(resolve("finder", menus: []))
+        XCTAssertNil(resolve("finder", menus: [menu, .init(windowID: 8, element: "other-menu", children: ["open"])]))
+        let searchReceiver = try XCTUnwrap(resolve("search", window: "menu-window"))
+        XCTAssertFalse(appReceiver.matches(searchReceiver, equal: ==))
+    }
     func testWindowOnlyShortcutDoesNotAdoptANewFocusedControl()throws{
         let expected=NativeKeyboardReceiver<String>(windowID:7,focusedElement:nil)
         try expected.validate(.init(windowID:7,focusedElement:nil),equal:==)
