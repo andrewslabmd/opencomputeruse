@@ -100,7 +100,7 @@ function backgroundActionBatchTool() {
               }),
               target("open"),
               target("perform_action", {
-                name: { type: "string", minLength: 1, description: "Exact Accessibility action name the target itself advertises, for example AXShowMenu, AXIncrement, AXDecrement, AXCancel, AXPick or one of the app's custom actions as listed. Omit to list the advertised actions of the target and its containers without performing anything." },
+                name: { type: "string", minLength: 1, description: "Exact Accessibility action name the target itself advertises, for example AXShowMenu, AXIncrement, AXDecrement, AXCancel, AXPick or one of the app's custom actions as listed. AXCancel on AXMenu sends Escape bound to that exact live tracking menu because some providers accept AXCancel without dismissing it; diagnostics name the actual operation. Omit to list the advertised actions of the target and its containers without performing anything." },
               }),
               actionVariant("scroll_to_visible", {
                 element: { ...element, description: "Exact observed control to bring into view using its native AXScrollToVisible action. Supports offscreen references; does not click or focus the control. Inspect the returned snapshot for visibility." },

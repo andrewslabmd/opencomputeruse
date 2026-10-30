@@ -195,6 +195,8 @@ protocol NativeInteractionAccess {
     func inputText(_ id: String, _ text: String) throws -> String
     /// Window-bound, process-directed left-button input to the receiver's window.
     func pointerGesture(_ id: String, _ gesture: NativePointerGesture) throws -> String
+    /// Escape bound to the exact live tracking menu, with a delivery receipt.
+    func cancelMenu(_ id: String) throws -> String
     /// The system drag pasteboard's change count, read before a pointer drag.
     func dragSessionMarker() -> Int
     /// Whether an app began a system drag-and-drop session (wrote the drag
@@ -220,6 +222,9 @@ protocol NativeInteractionAccess {
 }
 
 extension NativeInteractionAccess {
+    func cancelMenu(_ id: String) throws -> String {
+        throw NativeInteractionFailure(code: "keyboard_target_unavailable", message: "No exact menu keyboard receiver is available. No Escape was sent.")
+    }
     func dragSessionMarker() -> Int { 0 }
     func dragSessionStarted(since marker: Int) -> Bool { false }
     func refreshAfterMutation(_ node: NativeInteractionNode) throws -> NativeInteractionNode {
@@ -572,6 +577,18 @@ struct NativeInteractionExecutor {
                 }
                 guard try access.actionNames(node.id).contains(name) else {
                     return try supportedFailure("unsupported_native_action", "The target does not advertise \(name). Its advertised actions are in supported.")
+                }
+                if name == "AXCancel", node.role == "AXMenu" {
+                    // Finder advertises and accepts AXCancel without ending menu
+                    // tracking. Use the menu's own keyboard route and report the
+                    // operation actually sent, never AX acceptance as dismissal.
+                    try access.validateControl(node)
+                    try requireActivation()
+                    result.input_trace_ids = [try access.cancelMenu(node.id)]
+                    result.element_id = node.id; result.behavior = "cancel_menu"
+                    result.status = "sent"; result.effect = "menu_escape_sent"
+                    result.operations.append(.init(receiver_id: node.id, kind: "keyboard", name: "Escape", native_error: nil, outcome: "dispatched"))
+                    return result
                 }
                 if name == "AXShowMenu" || (name == "AXPress" && Self.menuOpeners.contains(node.role)) { try requireActivation() }
                 // A press keeps the press behavior, so web presses are confirmed the same way.

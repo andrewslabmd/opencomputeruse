@@ -304,7 +304,7 @@ compiled icon from `assets/icon` (needs Xcode 26 or later).
 <details>
 <summary>Native acceptance tests</summary>
 
-These are opt-in: they launch owned fixture apps in the background and send
+These are opt-in: most launch owned fixture apps in the background and send
 real input to them, so run them only on a Mac where that's fine, with the
 current build installed and running. Each keeps its evidence in the ignored
 `work/` folder.
@@ -317,9 +317,28 @@ node scripts/demo-agents.mjs --interactive              # watch two agents work 
 node scripts/test-native-selection.mjs --interactive    # selection in Finder and AppKit
 node scripts/test-native-observation.mjs --interactive  # large trees, lifecycle, Stop
 node scripts/test-native-interaction.mjs --interactive  # scroll, reveal, save panels
+node scripts/test-native-finder.mjs --interactive       # guarded issue #7 background cases
 node scripts/test-native.mjs --interactive              # basic native workflow
 node scripts/test-claude.mjs --interactive              # Claude Code end to end
 ```
+
+The Finder issue #7 harness uses the current `dist/` build's helper and host.
+Quit Open Computer Use yourself first; the harness refuses another running OCU
+service and never opens or quits apps. Finder must already be running. Build
+with `pnpm build`, then run `node scripts/test-native-finder.mjs --interactive`.
+It waits for an unlocked screen, Finder behind another app, and five minutes
+without input. The terminal needs Input Monitoring permission and the development
+helper needs its normal grants; the harness never prompts for permissions.
+A passive input monitor cancels on physical or unrecognized input, lock, pointer
+or foreground change, or monitor loss. It ignores only tagged private input from
+its own helper; a physical event beside that input still stops the run. An event
+already dispatched may finish. After interruption it sends no GUI cleanup;
+owned windows and dummy files remain under `work/` for inspection. A normal
+finish closes only fixture windows and retains evidence and dummy files.
+It covers menu Escape and AXCancel with delayed readback, ten ordinary-folder
+double-clicks (the first immediately after unsupported drag), alias double-click,
+pointer selection plus Cmd+Down, alias/folder context Open, and menu overflow.
+These are development-component tests, not release acceptance.
 
 </details>
 

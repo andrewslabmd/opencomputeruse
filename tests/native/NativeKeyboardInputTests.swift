@@ -23,7 +23,7 @@ final class NativeKeyboardInputTests:XCTestCase{
         XCTAssertFalse(withoutMenu.matches(expected, equal: ==))
     }
     func testTrackingMenuResolvesFinderApplicationFocusAndItsOwnSearchFieldOnly() throws {
-        let menu = NativeKeyboardMenu(windowID: 7, element: "context-menu", children: ["search", "open"])
+        let menu = NativeKeyboardMenu(windowID: 7, element: "context-menu", children: ["search", "open"], ownerWindow: "owned-window")
         func resolve(_ focused: String?, window: String? = nil,
                      menus: [NativeKeyboardMenu<String>] = [menu], path: [String] = []) -> NativeKeyboardReceiver<String>? {
             NativeKeyboardReceiver.trackingMenu(menus, focused: focused, application: "finder",
@@ -32,6 +32,8 @@ final class NativeKeyboardInputTests:XCTestCase{
         let appReceiver = try XCTUnwrap(resolve("finder"))
         XCTAssertEqual(appReceiver.windowID, 7); XCTAssertEqual(appReceiver.menu, "context-menu")
         XCTAssertEqual(appReceiver.focusedElement, "finder")
+        XCTAssertNotNil(resolve("finder", window: "owned-window"))
+        XCTAssertNotNil(resolve(nil, window: "owned-window"))
         XCTAssertNotNil(resolve(nil)); XCTAssertNotNil(resolve("context-menu"))
         // The menu search field can have an alternate AXParent and its own window.
         XCTAssertNotNil(resolve("search", window: "menu-window"))
@@ -43,6 +45,13 @@ final class NativeKeyboardInputTests:XCTestCase{
         XCTAssertNil(resolve("finder", menus: [menu, .init(windowID: 8, element: "other-menu", children: ["open"])]))
         let searchReceiver = try XCTUnwrap(resolve("search", window: "menu-window"))
         XCTAssertFalse(appReceiver.matches(searchReceiver, equal: ==))
+    }
+    func testMenuCancellationRequiresExactLiveMenuEvenInSameWindow() throws {
+        let receiver = NativeKeyboardReceiver(windowID: 7, focusedElement: "finder", menu: "menu")
+        try receiver.validateMenu("menu", equal: ==)
+        XCTAssertThrowsError(try receiver.validateMenu("replacement", equal: ==))
+        let ordinary = NativeKeyboardReceiver(windowID: 7, focusedElement: "finder")
+        XCTAssertThrowsError(try ordinary.validateMenu("menu", equal: ==))
     }
     func testWindowOnlyShortcutDoesNotAdoptANewFocusedControl()throws{
         let expected=NativeKeyboardReceiver<String>(windowID:7,focusedElement:nil)
@@ -117,7 +126,9 @@ final class NativeKeyboardInputTests:XCTestCase{
         let double=try NativeInputPlan.pointer(.init(points:[CGPoint(x:150,y:60)],clickCount:2,modifiers:[.maskCommand]),window:7,frame:frame,primaryScreenHeight:900)
         XCTAssertEqual(double.events.map{$0.type},[.leftMouseDown,.leftMouseUp,.leftMouseDown,.leftMouseUp])
         XCTAssertEqual(double.events.map{$0.getIntegerValueField(.mouseEventClickState)},[1,1,2,2])
-        XCTAssertEqual(double.releases,[0:1,2:3]);XCTAssertTrue(double.delays.isEmpty);XCTAssertEqual(double.kind,"pointer_click")
+        XCTAssertEqual(double.releases,[0:1,2:3]);XCTAssertEqual(double.delays,[0,0.02,0.06,0.02]);
+        XCTAssertEqual(double.events.map { NSEvent(cgEvent:$0)?.eventNumber }, [1,1,2,2])
+        XCTAssertTrue(zip(double.events,double.events.dropFirst()).allSatisfy { $0.timestamp < $1.timestamp });XCTAssertEqual(double.kind,"pointer_click")
         for event in double.events{
             XCTAssertEqual(event.flags,.maskCommand);XCTAssertEqual(NSEvent(cgEvent:event)?.windowNumber,7)
             XCTAssertEqual(NSEvent(cgEvent:event)?.modifierFlags.intersection(.deviceIndependentFlagsMask),.command)

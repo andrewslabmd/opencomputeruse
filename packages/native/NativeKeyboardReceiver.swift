@@ -4,6 +4,7 @@ struct NativeKeyboardMenu<Handle> {
     let windowID: CGWindowID
     let element: Handle
     let children: [Handle]
+    var ownerWindow: Handle? = nil
 }
 
 // Keyboard events address an app, not an AX control. Retain the control/window
@@ -23,8 +24,17 @@ struct NativeKeyboardReceiver<Handle> {
         if let focused, !equal(focused, application) {
             guard equal(focused, menu.element) || NativeRelatedUI.menuContains(
                 ancestry: ancestry(focused), children: menu.children, equal: equal) else { return nil }
-        } else if focusedWindow != nil { return nil }
+        } else if let focusedWindow {
+            guard let owner = menu.ownerWindow, equal(focusedWindow, owner) else { return nil }
+        }
         return Self(windowID: menu.windowID, focusedElement: focused, menu: menu.element)
+    }
+
+    func validateMenu(_ expected: Handle, equal: (Handle, Handle) -> Bool) throws {
+        guard let menu, equal(menu, expected) else {
+            throw NativeInteractionFailure(code: "keyboard_target_changed",
+                message: "The exact menu no longer owns keyboard input. No Escape was sent.")
+        }
     }
 
     func matches(_ current: Self?, equal: (Handle, Handle) -> Bool) -> Bool {

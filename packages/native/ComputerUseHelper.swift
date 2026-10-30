@@ -1155,7 +1155,26 @@ private final class ComputerUseHelper {
                     frame: frame, children: node.children, offscreen: node.offscreen)
             }, checkInput: {
                 try self.nativeCancellation?.check()
-            }, inputWindowID: inputWindow.windowID, inputWindowFrame: inputWindow.frame)
+            }, inputWindowID: inputWindow.windowID, inputWindowFrame: inputWindow.frame, menuEscape: { id in
+                guard let menu = self.snapshotElements[id] else {
+                    throw NativeInteractionFailure(code: "keyboard_target_expired", message: "The exact menu expired. No Escape was sent.")
+                }
+                let windows = [window.windowID: window.element]
+                func receiver() throws -> NativeKeyboardReceiver<AXUIElement> {
+                    try self.nativeCancellation?.check()
+                    guard try NativeProcessIdentity.read(point.processID) == identity,
+                          let current = try self.readKeyboardReceiver(point.processID, windows: windows) else {
+                        throw NativeInteractionFailure(code: "keyboard_target_unavailable", message: "The menu has no stable keyboard receiver. No Escape was sent.")
+                    }
+                    try current.validateMenu(menu, equal: { CFEqual($0, $1) })
+                    return current
+                }
+                let expected = try receiver()
+                return try NativeKeyboardInput.shared.send(.shortcut(["Escape"]), pid: point.processID,
+                    window: expected.windowID, receiver: id) {
+                    try expected.validate(receiver(), equal: { CFEqual($0, $1) })
+                }
+            })
             var input = NativeInteractionAction(kind: action.kind == "type" && action.inputMethod != "accessibility" ? "input_text" : action.kind, point: location)
             if let x = action.toX, let y = action.toY {
                 guard x.isFinite, y.isFinite else { throw NativeInteractionFailure(code: "invalid_drag", message: "Drag destination must be finite.") }
@@ -1236,10 +1255,13 @@ private final class ComputerUseHelper {
             return unsafeBitCast(raw, to: AXUIElement.self)
         }
         let focused = try read("AXFocusedUIElement")
-        if let focused, let windowID = NativeWindowIdentity.read(focused) {
-            if windows[windowID] != nil {
-                return NativeKeyboardReceiver(windowID: windowID, focusedElement: focused)
-            }
+        // A concrete focused control in an allowed window already authorizes
+        // keys. Avoid walking arbitrary document trees for ordinary typing.
+        // AXApplication is different: Finder keeps its document window while a
+        // tracking menu owns keys, so that case must prove the menu below.
+        if let focused, stringAttribute(focused, "AXRole" as CFString) != "AXApplication",
+           let id = NativeWindowIdentity.read(focused), windows[id] != nil {
+            return NativeKeyboardReceiver(windowID: id, focusedElement: focused)
         }
         let focusWindow: AXUIElement?
         if let ancestor = focused.flatMap({ accessibilityWindowAncestor(of: $0) }) {
@@ -1248,11 +1270,8 @@ private final class ComputerUseHelper {
         let windowID = focused.flatMap(NativeWindowIdentity.read)
             ?? focusWindow.flatMap(NativeWindowIdentity.read)
             ?? focusWindow.flatMap { window in windows.first { CFEqual($0.value, window) }?.key }
-        if let windowID {
-            if windows[windowID] != nil {
-                return NativeKeyboardReceiver(windowID: windowID, focusedElement: focused)
-            }
-        }
+        // Resolve menus before an ordinary window receiver: Finder can retain
+        // AXFocusedWindow while tracking a menu, especially when backgrounded.
         // Finder clears AXFocusedWindow and focuses AXApplication while tracking
         // a context menu. Retain the one live menu inside the allowed window
         // tree, including its exact handle; never fall back to an arbitrary window.
@@ -1282,13 +1301,19 @@ private final class ComputerUseHelper {
                         guard let frame = self.frame(of: child) else { return nil }
                         if frame.width > 0 && frame.height > 0 { visible = true }
                     }
-                    if visible { menus.append(NativeKeyboardMenu(windowID: id, element: candidate, children: children)) }
+                    if visible { menus.append(NativeKeyboardMenu(windowID: id, element: candidate, children: children, ownerWindow: root)) }
                 } else { pending.append(contentsOf: children) }
             }
         }
-        return NativeKeyboardReceiver.trackingMenu(menus, focused: focused, application: app,
-            focusedWindow: focusWindow, ancestry: { self.liveAncestry(of: $0) },
-            equal: { CFEqual($0, $1) })
+        if !menus.isEmpty {
+            return NativeKeyboardReceiver.trackingMenu(menus, focused: focused, application: app,
+                focusedWindow: focusWindow, ancestry: { self.liveAncestry(of: $0) },
+                equal: { CFEqual($0, $1) })
+        }
+        if let windowID, windows[windowID] != nil {
+            return NativeKeyboardReceiver(windowID: windowID, focusedElement: focused)
+        }
+        return nil
     }
 
     private func checkedKeyboardReceiver(_ request: HelperRequest) throws -> NativeKeyboardReceiver<AXUIElement> {

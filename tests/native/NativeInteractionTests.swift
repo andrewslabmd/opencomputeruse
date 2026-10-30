@@ -5,6 +5,12 @@ import ApplicationServices
 private final class FakeNativeAccess: NativeInteractionAccess {
     var inputCalls=[String]()
     func inputText(_ id:String,_ text:String)throws -> String {inputCalls.append(id+":"+text);return "fake-input-trace"}
+    var menuCancels = [String]()
+    var menuChanged = false
+    func cancelMenu(_ id: String) throws -> String {
+        if menuChanged { throw NativeInteractionFailure(code:"keyboard_target_changed",message:"menu changed") }
+        menuCancels.append(id); return "fake-menu-escape"
+    }
     var pointerCalls=[String]()
     var active=true
     func appActive()throws -> Bool {active}
@@ -441,6 +447,28 @@ final class NativeInteractionTests: XCTestCase {
         let refused=try NativeInteractionExecutor(access:access).execute(cancel,chain:[node("stepper","AXIncrementor"),node("group","AXGroup")])
         XCTAssertEqual(refused.code,"unsupported_native_action");XCTAssertEqual(refused.effect,"not_attempted")
         XCTAssertEqual(refused.supported?.map(\.id),["stepper","group"]);XCTAssertEqual(access.calls,["stepper:AXIncrement"])
+    }
+    func testAdvertisedMenuCancelUsesExactEscapeAndNeverTheIgnoredAXCancel() throws {
+        let access = FakeNativeAccess()
+        access.declared["menu"] = .init(id:"menu",actions:["AXCancel"],writableAttributes:[])
+        var action = NativeInteractionAction(kind:"perform_action",point:point); action.actionName="AXCancel"
+        let executor = NativeInteractionExecutor(access:access)
+        access.active=false
+        XCTAssertEqual(try executor.execute(action,chain:[node("menu","AXMenu")]).code,"app_activation_required")
+        XCTAssertTrue(access.menuCancels.isEmpty)
+        access.active=true
+        let result=try executor.execute(action,chain:[node("menu","AXMenu")])
+        XCTAssertEqual(result.status,"sent"); XCTAssertEqual(result.effect,"menu_escape_sent")
+        XCTAssertEqual(result.operations.map(\.name),["Escape"])
+        XCTAssertEqual(result.input_trace_ids,["fake-menu-escape"])
+        XCTAssertEqual(access.menuCancels,["menu"]); XCTAssertTrue(access.calls.isEmpty)
+        access.menuChanged=true
+        XCTAssertEqual(try executor.execute(action,chain:[node("menu","AXMenu")]).code,"keyboard_target_changed")
+        XCTAssertEqual(access.menuCancels,["menu"])
+        // AXCancel on a non-menu remains the exact advertised AX action.
+        access.errors["menu:AXCancel"] = .success
+        XCTAssertEqual(try executor.execute(action,chain:[node("menu","AXGroup")]).status,"completed")
+        XCTAssertEqual(access.calls,["menu:AXCancel"])
     }
     func testPerformActionWithoutNameListsActionsAndSendsNothing() throws {
         let access=FakeNativeAccess()

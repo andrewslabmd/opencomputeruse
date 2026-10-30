@@ -38,6 +38,7 @@ struct AXNativeInteractionAccess: NativeInteractionAccess {
     let checkInput: () throws -> Void
     let inputWindowID: CGWindowID
     var inputWindowFrame: CGRect = .null
+    var menuEscape: ((String) throws -> String)? = nil
     let mutationReceivers = NativeMutationReceivers()
 
     func validate(_ node: NativeInteractionNode) throws { try validateNode(node, nil, mutationReceivers.ids.contains(node.id) ? .receiver : .point) }
@@ -118,6 +119,12 @@ struct AXNativeInteractionAccess: NativeInteractionAccess {
             try self.checkInput()
             try requireActive()
         }
+    }
+    func cancelMenu(_ id: String) throws -> String {
+        guard let menuEscape else {
+            throw NativeInteractionFailure(code: "keyboard_target_unavailable", message: "No exact menu keyboard receiver is available. No Escape was sent.")
+        }
+        return try menuEscape(id)
     }
     func dragSessionMarker() -> Int { NSPasteboard(name: .drag).changeCount }
     func dragSessionStarted(since marker: Int) -> Bool {

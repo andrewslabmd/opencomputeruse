@@ -504,3 +504,29 @@ test("verified empty application observations stay non-actionable without claimi
   assert.equal(empty.internalWindows.length, 0);
   assert.ok(observedStateChanges(before,empty).items.every(c=>c.property!=="window"||c.after==="not_observable"));
 });
+
+test('menu cancellation requires fresh dismissal, including when the provider rebuilds menu handles', () => {
+  const snapshot = (menuID, visible = true, pid = 42) => normalizeAirpointSnapshot({
+    app: { name: 'Finder', pid }, capturedAt: 1, nodeCount: 3,
+    surface: { frame: { x: 0, y: 0, w: 100, h: 100 }, windows: [{ windowID: 7,
+      frame: { x: 0, y: 0, w: 100, h: 100 }, tree: { id: 'window', role: 'AXWindow', children: menuID ? [
+        { id: menuID, role: 'AXMenu', children: [{ id: `${menuID}-open`, role: 'AXMenuItem',
+          frame: { x: 10, y: 10, w: visible ? 80 : 0, h: visible ? 20 : 0 } }] },
+      ] : [] } }] },
+  });
+  const before = snapshot('menu');
+  const native = { status: 'sent', behavior: 'cancel_menu', element_id: 'menu', effect: 'menu_escape_sent',
+    operations: [{ receiver_id: 'menu', kind: 'keyboard', name: 'Escape', outcome: 'dispatched' }] };
+  for (const after of [before, snapshot('rebuilt-menu'), snapshot(null, true, 43), null]) {
+    const result = { ...nativeActionAudit(before, native) };
+    confirmNativeState(result, after);
+    assert.equal(result.status, 'unconfirmed'); assert.equal(result.code, 'menu_dismissal_unconfirmed');
+    assert.ok(batchStops(result));
+    assert.equal(result.native_operations[0].name, 'Escape');
+  }
+  for (const after of [snapshot(null), snapshot('hidden-menu', false)]) {
+    const result = { ...nativeActionAudit(before, native) };
+    confirmNativeState(result, after);
+    assert.equal(result.status, 'completed'); assert.equal(result.effect, 'menu_dismissed');
+  }
+});

@@ -127,17 +127,10 @@ try {
   assert.ok(menu, 'The opened menu is observed');
   a = await act({ kind: 'perform_action', element: menu.id, name: 'AXCancel' });
   assert.equal(a.status, 'completed', JSON.stringify(a));
-  pass('perform_action reaches an opened context menu (AXCancel accepted)');
-  try {
-    await until(s => s.menu_closed === 1, 'menu closed by AXCancel');
-    pass('AXCancel closes the context menu');
-  } catch {
-    // Report, then close it the way a user would, so the run leaves nothing open.
-    console.log('AXCancel accepted but the menu stayed open; sending Escape');
-    a = await act({ kind: 'hotkey', keys: ['escape'] });
-    await until(s => s.menu_closed === 1, 'menu closed by Escape');
-    pass('Escape closes the context menu (AXCancel did not)');
-  }
+  assert.equal(a.effect, 'menu_dismissed');
+  assert.ok(a.native_operations.some(op => op.kind === 'keyboard' && op.name === 'Escape'));
+  await until(s => s.menu_closed === 1, 'menu closed by exact-menu Escape');
+  pass('menu AXCancel dispatches exact-menu Escape and verifies dismissal');
 
   await client.request('release');
   const final = await state();

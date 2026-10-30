@@ -52,12 +52,12 @@ extension NativeInputPlan {
             throw NativeInteractionFailure(code: "pointer_input_unavailable", message: "Native pointer events could not be created.")
         }
         let timestamp = ProcessInfo.processInfo.systemUptime
-        func event(_ type: NSEvent.EventType, _ point: CGPoint, pressure: Float, clickCount: Int = 1) throws -> CGEvent {
+        func event(_ type: NSEvent.EventType, _ point: CGPoint, pressure: Float, clickCount: Int = 1, offset: TimeInterval = 0) throws -> CGEvent {
             // NSEvent flips y against the primary screen when converting to CGEvent.
             let location = NSPoint(x: point.x - frame.minX, y: primaryScreenHeight - (point.y - frame.minY))
             guard let event = NSEvent.mouseEvent(with: type, location: location,
-                    modifierFlags: NSEvent.ModifierFlags(rawValue: UInt(gesture.modifiers.rawValue)), timestamp: timestamp,
-                    windowNumber: Int(window), context: nil, eventNumber: 0, clickCount: clickCount, pressure: pressure)?.cgEvent else {
+                    modifierFlags: NSEvent.ModifierFlags(rawValue: UInt(gesture.modifiers.rawValue)), timestamp: timestamp + offset,
+                    windowNumber: Int(window), context: nil, eventNumber: clickCount, clickCount: clickCount, pressure: pressure)?.cgEvent else {
                 throw NativeInteractionFailure(code: "pointer_input_unavailable", message: "Native pointer events could not be created.")
             }
             // A private source: no shared HID button or modifier state. The
@@ -71,9 +71,15 @@ extension NativeInputPlan {
             // Each press carries its position in the series, as AppKit counts
             // it: down/up 1, down/up 2 (double), down/up 3 (triple).
             let events = try (1...gesture.clickCount).flatMap { count in
-                [try event(.leftMouseDown, start, pressure: 1, clickCount: count), try event(.leftMouseUp, start, pressure: 0, clickCount: count)]
+                let offset = Double(count - 1) * 0.08
+                return [try event(.leftMouseDown, start, pressure: 1, clickCount: count, offset: offset),
+                        try event(.leftMouseUp, start, pressure: 0, clickCount: count, offset: offset + 0.02)]
             }
-            return .init(source: source, events: events, kind: gesture.behavior, textUnits: nil)
+            // Give the receiver a distinct press/release and time to handle the
+            // first click before the next. The dispatcher updates timestamps at
+            // posting and revalidates after each wait; no semantic open/retry.
+            let delays = events.indices.map { $0 == 0 ? 0.0 : ($0 % 2 == 1 ? 0.02 : 0.06) }
+            return .init(source: source, events: events, kind: gesture.behavior, textUnits: nil, delays: delays)
         }
         var events = [try event(.leftMouseDown, start, pressure: 1)]
         var delays: [TimeInterval] = [0]

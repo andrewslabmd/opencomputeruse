@@ -3,6 +3,7 @@ const nativeStateCheck = Symbol("native state check");
 const nativeTextCheck = Symbol("native text check");
 const nativePressCheck = Symbol("native web press check");
 const nativeSelectionCheck = Symbol("native selection check");
+const nativeMenuCheck = Symbol("native menu dismissal check");
 function finiteNumber(value) {
   return typeof value === "number" && Number.isFinite(value);
 }
@@ -373,6 +374,11 @@ export function nativeActionAudit(snapshot, result, requested) {
     ...(result.supported ? { supported: result.supported.map(item => ({ ...item, id: item.id })) } : {}),
     ...(Array.isArray(result.input_trace_ids) ? { input_trace_ids: result.input_trace_ids } : {}),
   };
+  if (result.behavior === "cancel_menu" && result.status === "sent") {
+    const window = snapshot.internalWindows.find(w => find(w.tree, result.element_id));
+    if (!window || element?.role !== "AXMenu") throw new Error("The menu cancellation receiver is outside the observation.");
+    audit[nativeMenuCheck] = { pid: snapshot.pid, windowID: window.windowID };
+  }
   if (result.state_check) {
     const check = result.state_check;
     const window = snapshot.internalWindows.find(w => find(w.tree, check.receiver_id));
@@ -472,6 +478,18 @@ export function confirmedTextSubmitTarget(result,snapshot) {
 }
 
 export function confirmNativeState(result, snapshot) {
+  const menu = result[nativeMenuCheck];
+  if (menu && result.status === "sent") {
+    const window = snapshot?.pid === menu.pid && snapshot.internalWindows?.find(w => w.windowID === menu.windowID);
+    const visibleItem = node => (node.role === "AXMenuItem" && !node.offscreen && node.frame?.width > 0 && node.frame?.height > 0) ||
+      (node.children ?? []).some(visibleItem);
+    const visibleMenu = node => (node.role === "AXMenu" && visibleItem(node)) || (node.children ?? []).some(visibleMenu);
+    const dismissed = Boolean(window && !visibleMenu(window.tree));
+    result.state_confirmation = { property: "menu_visible", matched: dismissed };
+    result.status = dismissed ? "completed" : "unconfirmed";
+    result.effect = dismissed ? "menu_dismissed" : "menu_dismissal_unconfirmed";
+    if (!dismissed) result.code = "menu_dismissal_unconfirmed";
+  }
   const text=result[nativeTextCheck];
   if (text && result.status==='sent') {
     const window=snapshot?.pid===text.pid && snapshot.internalWindows.find(w=>w.windowID===text.windowID);
