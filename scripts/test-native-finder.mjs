@@ -6,6 +6,7 @@ import { pathToFileURL } from 'node:url';
 import { createInterface } from 'node:readline';
 import { parse } from 'yaml';
 import { Client } from '../packages/cli/client.mjs';
+import { flat, finderObservationNodes, finderItem as item } from './live-support/finder-targets.mjs';
 
 // No app launch/quit, foreground activation or installed-bundle changes. Uses
 // packaged components only when no OCU service is running (one host per user).
@@ -19,7 +20,6 @@ const helperPath = join(app, 'Contents/Resources/Open Computer Use Helper.app/Co
 const hostPath = join(app, 'Contents/MacOS/ocu-host');
 const enginePath = join(app, 'Contents/MacOS/ocu-engine');
 const sleep = ms => new Promise(r => setTimeout(r, ms));
-const flat = n => typeof n === 'object' && n ? [n, ...(n.children ?? []).flatMap(flat)] : [];
 const point = n => ({ x: n.frame[0] + n.frame[2] / 2, y: n.frame[1] + n.frame[3] / 2 });
 const records = [], cases = [], children = new Set();
 let helper, host, monitor, client, windowID, lastGuard, heartbeat = 0, stopped, watchdog, foreground, pointer;
@@ -92,7 +92,7 @@ async function call(name, args) {
 async function observe() {
   const result = await call('use_observe', { app_target: 'Finder', window_id: windowID, include_screenshot: true });
   assert.ok(result.snapshot?.surface.windows.some(w => w.window_id === windowID), 'Owned observation missing');
-  return result.snapshot.surface.windows.flatMap(w => flat(w.tree));
+  return finderObservationNodes(result.snapshot);
 }
 async function act(action, expectedFailure) {
   const result = (await call('use_action_batch', { actions: [action], diagnostics: true })).actions[0];
@@ -102,11 +102,6 @@ async function act(action, expectedFailure) {
     assert.ok(result.input_trace_ids?.length, 'Expected a process-directed input trace');
   }
   return result;
-}
-function item(nodes, name) {
-  const matches = nodes.filter(n => n.frame?.[2] > 0 && n.frame?.[3] > 0 && [n.name, n.value, n.identifier].includes(name) && !n.offscreen);
-  const target = matches.find(n => n.role === 'AXImage') ?? matches.find(n => n.role === 'AXStaticText') ?? matches[0];
-  assert.ok(target, `Missing fixture item: ${name}`); return target;
 }
 async function openMenu(name) {
   const target = item(await observe(), name);
