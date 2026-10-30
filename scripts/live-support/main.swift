@@ -28,9 +28,9 @@ CFRunLoopAddSource(CFRunLoopGetCurrent(), CFMachPortCreateRunLoopSource(kCFAlloc
 func sample() {
     guard CGEvent.tapIsEnabled(tap:tap) else { stop("input monitor unavailable") }
     guard let session=CGSessionCopyCurrentDictionary() as? [String:Any],
-          let console=session["kCGSessionOnConsoleKey"] as? Bool else { stop("session state unavailable") }
+          let console=session[kCGSessionOnConsoleKey as String] as? Bool else { stop("session state unavailable") }
     let unlocked=console && !(session["CGSSessionScreenIsLocked"] as? Bool ?? false)
-        && (session["kCGSessionLoginDoneKey"] as? Bool == true)
+        && (session[kCGSessionLoginDoneKey as String] as? Bool == true)
     let service=IOServiceGetMatchingService(kIOMainPortDefault,IOServiceMatching("IOHIDSystem"))
     guard service != 0 else { stop("HID idle service unavailable") }
     defer { IOObjectRelease(service) }
