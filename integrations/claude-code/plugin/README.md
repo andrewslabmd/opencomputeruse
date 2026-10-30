@@ -2,7 +2,7 @@
 
 Use Mac apps in the background without taking over your mouse or keyboard.
 This plugin connects Claude Code to the Open Computer Use menu-bar app and
-includes setup help and its operating instructions. Plugin version: **0.1.2**.
+includes setup help and its operating instructions. Plugin version: **0.1.3**.
 Requires a local Mac with macOS 15 or later on Apple silicon.
 
 ## Install

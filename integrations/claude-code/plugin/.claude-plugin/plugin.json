@@ -1,7 +1,7 @@
 {
   "name": "opencomputeruse",
   "displayName": "Open Computer Use",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Use Mac apps in the background without taking over your mouse or keyboard.",
   "author": {
     "name": "Andrew's Lab MD",

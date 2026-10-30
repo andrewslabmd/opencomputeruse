@@ -10,7 +10,7 @@
       "name": "opencomputeruse",
       "source": "./integrations/claude-code/plugin",
       "description": "Use Mac apps in the background without taking over your mouse or keyboard.",
-      "version": "0.1.2"
+      "version": "0.1.3"
     }
   ]
 }
