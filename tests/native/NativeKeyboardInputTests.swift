@@ -53,6 +53,24 @@ final class NativeKeyboardInputTests:XCTestCase{
         let ordinary = NativeKeyboardReceiver(windowID: 7, focusedElement: "finder")
         XCTAssertThrowsError(try ordinary.validateMenu("menu", equal: ==))
     }
+    func testTrackingMenuCanRetainFocusOnAControlInItsOwnerWindow() throws {
+        let menu = NativeKeyboardMenu(windowID: 7, element: "menu", children: ["item"], ownerWindow: "window")
+        func resolve(focus: String = "table", window: String? = "window", path: [String] = ["table", "scroll", "window", "app"],
+                     menus: [NativeKeyboardMenu<String>] = [menu]) -> NativeKeyboardReceiver<String>? {
+            NativeKeyboardReceiver.trackingMenu(menus, focused: focus, application: "app",
+                focusedWindow: window, ancestry: { _ in path }, equal: ==)
+        }
+        // AppKit leaves AXFocusedUIElement on the table behind its tracking menu.
+        let receiver = try XCTUnwrap(resolve())
+        try receiver.validateMenu("menu", equal: ==)
+        XCTAssertEqual(receiver.focusedElement, "table")
+        XCTAssertNil(resolve(window: "other-window"))
+        XCTAssertNil(resolve(window: nil))
+        XCTAssertNil(resolve(path: ["table", "other-window", "app"]))
+        XCTAssertNil(resolve(menus: [menu, .init(windowID: 7, element: "other-menu", children: ["other-item"], ownerWindow: "window")]))
+        XCTAssertThrowsError(try receiver.validateMenu("replacement-menu", equal: ==))
+        XCTAssertThrowsError(try receiver.validate(.init(windowID: 7, focusedElement: "other-control", menu: "menu"), equal: ==))
+    }
     func testWindowOnlyShortcutDoesNotAdoptANewFocusedControl()throws{
         let expected=NativeKeyboardReceiver<String>(windowID:7,focusedElement:nil)
         try expected.validate(.init(windowID:7,focusedElement:nil),equal:==)

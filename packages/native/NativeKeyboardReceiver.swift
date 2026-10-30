@@ -22,8 +22,16 @@ struct NativeKeyboardReceiver<Handle> {
         equal: (Handle, Handle) -> Bool) -> Self? {
         guard menus.count == 1, let menu = menus.first else { return nil }
         if let focused, !equal(focused, application) {
-            guard equal(focused, menu.element) || NativeRelatedUI.menuContains(
-                ancestry: ancestry(focused), children: menu.children, equal: equal) else { return nil }
+            let path = ancestry(focused)
+            let menuFocus = equal(focused, menu.element) || NativeRelatedUI.menuContains(
+                ancestry: path, children: menu.children, equal: equal)
+            // AppKit can keep AX focus on the document control behind a live
+            // tracking menu. Require both the focused window and the control's
+            // live ancestry to agree with that menu's proven owner window.
+            let ownerFocus = menu.ownerWindow.map { owner in
+                focusedWindow.map { equal($0, owner) } == true && path.contains { equal($0, owner) }
+            } ?? false
+            guard menuFocus || ownerFocus else { return nil }
         } else if let focusedWindow {
             guard let owner = menu.ownerWindow, equal(focusedWindow, owner) else { return nil }
         }

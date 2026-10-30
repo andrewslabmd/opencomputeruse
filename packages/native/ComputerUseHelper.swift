@@ -1163,7 +1163,7 @@ private final class ComputerUseHelper {
                 func receiver() throws -> NativeKeyboardReceiver<AXUIElement> {
                     try self.nativeCancellation?.check()
                     guard try NativeProcessIdentity.read(point.processID) == identity,
-                          let current = try self.readKeyboardReceiver(point.processID, windows: windows) else {
+                          let current = try self.readKeyboardReceiver(point.processID, windows: windows, requireMenu: true) else {
                         throw NativeInteractionFailure(code: "keyboard_target_unavailable", message: "The menu has no stable keyboard receiver. No Escape was sent.")
                     }
                     try current.validateMenu(menu, equal: { CFEqual($0, $1) })
@@ -1241,7 +1241,7 @@ private final class ComputerUseHelper {
         } catch { return self.captureResponse(id: request.id, error: error.localizedDescription) }
     }
 
-    private func readKeyboardReceiver(_ pid: pid_t, windows: [CGWindowID: AXUIElement]) throws -> NativeKeyboardReceiver<AXUIElement>? {
+    private func readKeyboardReceiver(_ pid: pid_t, windows: [CGWindowID: AXUIElement], requireMenu: Bool = false) throws -> NativeKeyboardReceiver<AXUIElement>? {
         let app = AXUIElementCreateApplication(pid)
         _ = AXUIElementSetMessagingTimeout(app, 2)
         func read(_ name: String) throws -> AXUIElement? {
@@ -1259,7 +1259,7 @@ private final class ComputerUseHelper {
         // keys. Avoid walking arbitrary document trees for ordinary typing.
         // AXApplication is different: Finder keeps its document window while a
         // tracking menu owns keys, so that case must prove the menu below.
-        if let focused, stringAttribute(focused, "AXRole" as CFString) != "AXApplication",
+        if !requireMenu, let focused, stringAttribute(focused, "AXRole" as CFString) != "AXApplication",
            let id = NativeWindowIdentity.read(focused), windows[id] != nil {
             return NativeKeyboardReceiver(windowID: id, focusedElement: focused)
         }
