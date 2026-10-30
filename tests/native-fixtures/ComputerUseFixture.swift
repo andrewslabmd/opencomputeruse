@@ -14,6 +14,8 @@ private final class FixtureDelegate: NSObject, NSApplicationDelegate {
     private var slider: NSSlider?
     private var scrollView: NSScrollView?
     private var panelActionPerformed = false
+    private var committed = false
+    private var ready = false
 
     init(resultPath: String) {
         self.resultURL = URL(fileURLWithPath: resultPath)
@@ -118,6 +120,11 @@ private final class FixtureDelegate: NSObject, NSApplicationDelegate {
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
             NSApp.deactivate()
             self.previousApplication?.activate(options: [.activateIgnoringOtherApps])
+            self.ready = true
+            self.writeState()
+        }
+        Timer.scheduledTimer(withTimeInterval: 0.025, repeats: true) { _ in
+            MainActor.assumeIsolated { self.writeState() }
         }
     }
 
@@ -127,10 +134,18 @@ private final class FixtureDelegate: NSObject, NSApplicationDelegate {
     @objc private func beginTest() {
         self.initialPointer = NSEvent.mouseLocation
         self.initialFrontmost = NSWorkspace.shared.frontmostApplication?.processIdentifier
+        self.writeState()
     }
 
     @objc private func commit() {
+        self.committed = true
+        self.writeState()
+    }
+
+    private func writeState() {
         let payload: [String: Any] = [
+            "ready": self.ready,
+            "committed": self.committed,
             "text": self.textField?.stringValue ?? "",
             "level": self.slider?.doubleValue ?? -1,
             "scrollOffset": self.scrollView?.contentView.bounds.origin.y ?? -1,
