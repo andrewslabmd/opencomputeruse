@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.3 — 2026-10-29
+
+[Finder folders and aliases open reliably](https://github.com/andrewslabmd/opencomputeruse/releases/tag/v0.1.3)
+with repeated double-clicks and context menus. Escape and menu cancellation
+close menus in the background. Unsupported file drags report their limitation;
+use copy and paste to transfer files. MCP connections report the installed
+version. Added a Claude Code plugin and manual setup guides for VS Code,
+Gemini CLI and Claude Desktop.
+
 ## 0.1.2 — 2026-10-21
 
 [After allowing Screen Recording](https://github.com/andrewslabmd/opencomputeruse/releases/tag/v0.1.2),
