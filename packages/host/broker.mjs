@@ -15,6 +15,7 @@ export class Broker {
     this.child.stdout.setEncoding('utf8');
     this.child.stdout.on('data', frameReader(message => {
       if (message.method === 'engine/cursor') { this.onCursor?.(message.params); return; }
+      if (message.method === 'engine/target') { this.onTarget?.(message.params); return; }
       const entry = this.pending.get(message.id);
       if (!entry) return;
       clearTimeout(entry.timer); this.pending.delete(message.id);

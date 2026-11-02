@@ -2,7 +2,7 @@ import net from 'node:net';
 import { mkdir, chmod, readFile, writeFile, rename, unlink, lstat } from 'node:fs/promises';
 import { randomBytes, timingSafeEqual, randomUUID } from 'node:crypto';
 import { join } from 'node:path';
-import { VERSION, frameReader, failure } from '../protocol/index.mjs';
+import { VERSION, MAX_FRAME, frameReader, failure } from '../protocol/index.mjs';
 import Ajv from 'ajv';
 import { tools } from '../protocol/tools.mjs';
 import { Client } from '../cli/client.mjs';
@@ -32,15 +32,21 @@ export class Host {
       // A stable small slot per workflow gives each agent its own cursor color.
       const used = new Set([...this.workflows.values()].map(w => w.slot));
       let slot = 0; while (used.has(slot)) slot++;
-      wf = { id, slot, broker: this.createBroker(), pid: null, claiming: null, cursor: null, inflight: false, stopping: false, active: null, lastActivity: Date.now() };
+      wf = { id, slot, broker: this.createBroker(), pid: null, claiming: null, cursor: null, target: null, inflight: false, stopping: false, active: null, lastActivity: Date.now() };
       wf.broker.onCursor = event => this.cursor(wf, event);
+      wf.broker.onTarget = event => this.target(wf, event);
       this.workflows.set(id, wf);
     }
     return wf;
   }
   cursor(wf, event) {
     const finite = n => Number.isFinite(n);
-    if (!event || !Number.isInteger(event.pid) || !Number.isInteger(event.window_id) || !finite(event.x) || !finite(event.y)) return;
+    if (!event || !Number.isInteger(event.pid) || !Number.isInteger(event.window_id)) return;
+    if (event.kind === 'hotkey') {
+      if (wf.cursor?.pid !== event.pid || wf.cursor?.window_id !== event.window_id) return;
+      event = { pid: event.pid, window_id: event.window_id, kind: 'hotkey', x: wf.cursor.x, y: wf.cursor.y };
+    }
+    if (!finite(event.x) || !finite(event.y)) return;
     wf.cursor = { pid: event.pid, window_id: event.window_id, x: event.x, y: event.y, kind: String(event.kind || 'action').slice(0, 32),
       ...(finite(event.to_x) && finite(event.to_y) ? { to_x: event.to_x, to_y: event.to_y } : {}), at: Date.now() };
     void this.publishCursors().catch(() => {});
@@ -61,6 +67,32 @@ export class Host {
       await writeFile(temp, data, { mode: 0o600 }); await rename(temp, path);
     });
     return this.cursorWriting;
+  }
+  target(wf, event) {
+    const label = value => value === null || (typeof value === 'string' && value.length > 0 && Buffer.byteLength(value) <= MAX_FRAME);
+    if (wf.stopping || !event || !Number.isInteger(event.pid) || !label(event.app_name) || !label(event.bundle_id) ||
+        !Array.isArray(event.window_ids) || !event.window_ids.every(Number.isInteger) ||
+        !(event.main_window_id === null || Number.isInteger(event.main_window_id))) return;
+    wf.target = { pid: event.pid, app_name: event.app_name, bundle_id: event.bundle_id,
+      window_ids: [...event.window_ids], main_window_id: event.main_window_id, at: Date.now() };
+    void this.publishTargets().catch(() => {});
+  }
+  targets() {
+    return [...this.workflows.values()].filter(w => w.target && w.target.main_window_id !== null && w.pid === w.target.pid && !w.stopping)
+      .map(w => ({ client: w.id, name: this.clients.get(w.id)?.name ?? 'Agent', slot: w.slot, busy: w.inflight, ...w.target }));
+  }
+  async publishTargets() {
+    if (this.closingTargets) return;
+    const data = JSON.stringify(this.closing ? [] : this.targets());
+    if (data === this.lastTargets) return this.targetWriting;
+    this.lastTargets = data;
+    this.targetWriting = (this.targetWriting || Promise.resolve()).catch(() => {}).then(async () => {
+      const path = join(this.directory, 'targets.json'), temp = path + '.' + randomUUID();
+      try {
+        await writeFile(temp, data, { mode: 0o600, flag: 'wx' }); await rename(temp, path);
+      } finally { await unlink(temp).catch(() => {}); }
+    });
+    return this.targetWriting;
   }
   claimant(pid, except) { return [...this.workflows.values()].find(w => w.id !== except && (w.pid === pid || w.claiming === pid)); }
   async resolve(target) {
@@ -219,6 +251,7 @@ export class Host {
   async publish() {
     if (this.closing) return;
     void this.publishCursors().catch(() => {});
+    void this.publishTargets().catch(() => {});
     const data = JSON.stringify(this.status());
     this.publishing = (this.publishing || Promise.resolve()).then(async () => {
       const path = join(this.directory, 'status.json'); const temp = path + '.' + randomUUID();
@@ -269,7 +302,11 @@ export class Host {
         }
         wf.pid = actual;
       } else if (name === 'use_observe' || (name === 'use_action_batch' && !result?.isError)) wf.pid = null;
+      if (!Number.isInteger(actual)) wf.target = null;
       return result;
+    } catch (error) {
+      if (name === 'use_observe') wf.target = null;
+      throw error;
     } finally {
       wf.claiming = null;
       if (wf.active === active) wf.active = null;
@@ -280,16 +317,16 @@ export class Host {
     const wf = this.workflows.get(id);
     if (!wf || wf.pid == null) return { released: false };
     if (wf.inflight || wf.stopping) throw failure('busy', 'Wait for the current action before releasing');
-    wf.stopping = true;
-    try { await wf.broker.reset(); wf.pid = null; wf.cursor = null; wf.cleanupError = null; return { released: true }; }
+    wf.stopping = true; wf.target = null; await this.publish();
+    try { await wf.broker.reset(); wf.pid = null; wf.cursor = null; wf.target = null; wf.cleanupError = null; return { released: true }; }
     finally { wf.stopping = false; await this.publish(); }
   }
   async cancel(id) {
     const wf = this.workflows.get(id);
     if (!wf) return { cancelled: false };
     if (wf.stopping) return { stopping: true };
-    wf.stopping = true; wf.active?.abort(); await this.publish();
-    try { await wf.broker.stop(); wf.pid = null; wf.cursor = null; wf.cleanupError = null; return { cancelled: true, note: 'An already dispatched native action may have completed. Observe again before continuing.' }; }
+    wf.stopping = true; wf.target = null; wf.active?.abort(); await this.publish();
+    try { await wf.broker.stop(); wf.pid = null; wf.cursor = null; wf.target = null; wf.cleanupError = null; return { cancelled: true, note: 'An already dispatched native action may have completed. Observe again before continuing.' }; }
     finally { wf.stopping = false; await this.publish(); }
   }
   // The app's Stop control: every workflow stops.
@@ -312,6 +349,8 @@ export class Host {
     const closed = new Promise(resolve => this.server.close(resolve));
     if ((await lstat(this.socketPath).catch(() => null))?.ino === this.socketInode) await unlink(this.socketPath).catch(() => {});
     for (const c of this.clients.values()) c.socket.destroy();
+    await this.publishTargets(); this.closingTargets = true;
+    await this.targetWriting?.catch(() => {});
     // No agent is acting once the host is gone: leave no cursor behind.
     this.closingCursors = true; await this.cursorWriting?.catch(() => {});
     await writeFile(join(this.directory, 'cursors.json'), '[]', { mode: 0o600 }).catch(() => {});

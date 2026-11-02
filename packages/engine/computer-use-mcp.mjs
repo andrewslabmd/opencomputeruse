@@ -138,6 +138,13 @@ function enqueueAirpointOperation(operation) {
   return run;
 }
 
+function publishTarget(snapshot, mainWindowID = snapshot.mainWindowID) {
+  send({ jsonrpc: "2.0", method: "engine/target", params: {
+    pid: snapshot.pid, app_name: snapshot.appName, bundle_id: snapshot.bundleID,
+    window_ids: snapshot.captureWindowIDs, main_window_id: mainWindowID,
+  } });
+}
+
 async function captureAirpointObservation(appTarget, windowTitle, windowID, expectedSnapshot) {
   try {
     const response = await requestComputerUseHelper(
@@ -165,10 +172,17 @@ async function captureAirpointObservation(appTarget, windowTitle, windowID, expe
     const normalized = normalizeAirpointSnapshot(raw);
     latestAirpointObservation = {
       ...normalized,
+      appName: typeof raw.app.name === "string" && raw.app.name.length > 0 ? raw.app.name : null,
+      bundleID: typeof raw.app.bundleIdentifier === "string" && raw.app.bundleIdentifier.length > 0 ? raw.app.bundleIdentifier : null,
+      mainWindowID: normalized.internalWindows.length === 0 ? null : raw.surface?.anchorWindowID ??
+        normalized.internalWindows.find(w => w.tree.role === "AXWindow")?.windowID ??
+        normalized.internalWindows[0]?.windowID ?? null,
+      actionWindowID: normalized.internalWindows.length > 0 ? expectedSnapshot?.actionWindowID : undefined,
       appTarget: `PID:${normalized.pid}`,
       requestedAppTarget: appTarget,
       scopeWindowID: raw.surface?.anchorWindowID ?? raw.surface?.closedWindowID ?? raw.surface?.unavailableWindowID,
     };
+    publishTarget(latestAirpointObservation, latestAirpointObservation.actionWindowID ?? latestAirpointObservation.mainWindowID);
     return latestAirpointObservation;
   } catch (error) {
     latestAirpointObservation = undefined;
@@ -263,6 +277,10 @@ async function runAirpointAction(action, index) {
     if (!Array.isArray(action.keys) || action.keys.length < 1) {
       return { ...audit, status: "failed", code: "invalid_hotkey", error: "hotkey requires at least one key." };
     }
+    // The PiP shows "Typing" at the agent's last point in this window; the host
+    // ignores it when its last cursor was in another window.
+    const hotkeyWindow = snapshot.actionWindowID ?? snapshot.mainWindowID;
+    if (Number.isInteger(hotkeyWindow)) send({ jsonrpc: "2.0", method: "engine/cursor", params: { kind: "hotkey", pid: snapshot.pid, window_id: hotkeyWindow } });
     const target = await requestComputerUseHelper(helperCommandDirectory, "sendHotkey", {
       processID: snapshot.pid, capturedAt: snapshot.model.captured_at, keys: action.keys,
     }, { timeoutMs: 10_000, pollMs: 25 });
@@ -282,24 +300,30 @@ async function runAirpointAction(action, index) {
   // Where the agent is acting, for the on-screen agent cursor (global points).
   send({ jsonrpc: "2.0", method: "engine/cursor", params: { pid: snapshot.pid, window_id: route.windowID,
     x: route.global.x, y: route.global.y, kind: action.kind, ...(destination ? { to_x: destination.x, to_y: destination.y } : {}) } });
-  const response = await requestComputerUseHelper(helperCommandDirectory, "accessibilityInteraction", {
-    accessibilityInteraction: {
-      point: { processID: snapshot.pid, capturedAt: snapshot.model.captured_at,
-        windowID: route.windowID, x: route.global.x, y: route.global.y },
-      kind: action.kind,
-      ...(route.elementID ? { elementID: route.elementID } : {}),
-      ...(["type", "select_text"].includes(action.kind) ? { text: action.text, replace: action.replace === true, submit: action.submit === true } : {}),
-      ...(action.kind === "type" ? { inputMethod: action.input_method ?? "keyboard" } : {}),
-      ...(["click", "drag"].includes(action.kind) && (action.input_method === "pointer" || multiClick(action)) ? { inputMethod: "pointer" } : {}),
-      ...(action.kind === "click" && action.click_count > 1 ? { clickCount: action.click_count } : {}),
-      ...(action.kind === "click" && action.modifiers?.length ? { modifiers: action.modifiers } : {}),
-      ...(action.kind === "perform_action" && action.name !== undefined ? { actionName: action.name } : {}),
-      ...(action.kind === "long_press" ? { durationMs: action.duration_ms ?? 800 } : {}),
-      ...(action.kind === "drag" && action.duration_ms !== undefined ? { durationMs: action.duration_ms } : {}),
-      ...(destination ? { toX: destination.x, toY: destination.y } : {}),
-      ...(action.kind === "scroll" ? { direction: action.direction, amount: action.amount ?? 3 } : {}),
-    },
-  }, { timeoutMs: 10_000, pollMs: 25 });
+  let response;
+  try {
+    response = await requestComputerUseHelper(helperCommandDirectory, "accessibilityInteraction", {
+      accessibilityInteraction: {
+        point: { processID: snapshot.pid, capturedAt: snapshot.model.captured_at,
+          windowID: route.windowID, x: route.global.x, y: route.global.y },
+        kind: action.kind,
+        ...(route.elementID ? { elementID: route.elementID } : {}),
+        ...(["type", "select_text"].includes(action.kind) ? { text: action.text, replace: action.replace === true, submit: action.submit === true } : {}),
+        ...(action.kind === "type" ? { inputMethod: action.input_method ?? "keyboard" } : {}),
+        ...(["click", "drag"].includes(action.kind) && (action.input_method === "pointer" || multiClick(action)) ? { inputMethod: "pointer" } : {}),
+        ...(action.kind === "click" && action.click_count > 1 ? { clickCount: action.click_count } : {}),
+        ...(action.kind === "click" && action.modifiers?.length ? { modifiers: action.modifiers } : {}),
+        ...(action.kind === "perform_action" && action.name !== undefined ? { actionName: action.name } : {}),
+        ...(action.kind === "long_press" ? { durationMs: action.duration_ms ?? 800 } : {}),
+        ...(action.kind === "drag" && action.duration_ms !== undefined ? { durationMs: action.duration_ms } : {}),
+        ...(destination ? { toX: destination.x, toY: destination.y } : {}),
+        ...(action.kind === "scroll" ? { direction: action.direction, amount: action.amount ?? 3 } : {}),
+      },
+    }, { timeoutMs: 10_000, pollMs: 25 });
+  } finally {
+    snapshot.actionWindowID = route.windowID;
+    publishTarget(snapshot, route.windowID);
+  }
   if (response.success !== true || !response.stdout) {
     return { ...audit, requested: point, status: "failed", code: "native_action_unavailable",
       error: response.error || "The helper could not execute the native action." };
