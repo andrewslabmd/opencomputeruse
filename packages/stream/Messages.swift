@@ -2,7 +2,7 @@ import Foundation
 
 public enum StreamCodec: String, Codable, Equatable { case h264, hevc }
 public enum StreamTargetState: String, Codable, Equatable {
-    case live, minimized, closed, idle, hidden_from_capture, stopped, no_permission
+    case live, minimized, hidden, closed, idle, hidden_from_capture, stopped, no_permission
 }
 public enum StreamEndReason: String, Codable, Equatable {
     case released, disconnected, stopped, paused, unsubscribed, capture_stopped_by_user, error
