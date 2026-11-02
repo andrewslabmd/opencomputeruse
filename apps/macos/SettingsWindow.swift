@@ -124,10 +124,8 @@ private struct OverviewPane: View {
                     }
                 }
             }
-            Section("Preferences") {
-                Toggle("Show agent cursors", isOn: $model.showCursors)
-                Toggle("Open at login", isOn: Binding(get: { model.launchAtLogin }, set: { model.setLaunchAtLogin($0) }))
-            }
+            PreferencesSection(showCursors: $model.showCursors, captureMode: $model.captureMode,
+                launchAtLogin: Binding(get: { model.launchAtLogin }, set: { model.setLaunchAtLogin($0) }))
             if updater.isConfigured {
                 Section("Updates") {
                     Toggle("Check for updates automatically", isOn: Binding(get: { updater.automaticChecks }, set: { updater.setAutomaticChecks($0) }))
@@ -136,6 +134,26 @@ private struct OverviewPane: View {
             }
         }
         .formStyle(.grouped).navigationTitle("Overview")
+    }
+}
+
+struct PreferencesSection: View {
+    @Binding var showCursors: Bool
+    @Binding var captureMode: CaptureMode
+    @Binding var launchAtLogin: Bool
+
+    var body: some View {
+        Section("Preferences") {
+            Toggle("Show agent cursors", isOn: $showCursors)
+            VStack(alignment: .leading, spacing: 4) {
+                Picker("How agents see apps", selection: $captureMode) {
+                    ForEach(CaptureMode.allCases) { mode in Text(mode.title).tag(mode) }
+                }
+                Text(captureMode.description).font(.caption).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Toggle("Open at login", isOn: $launchAtLogin)
+        }
     }
 }
 

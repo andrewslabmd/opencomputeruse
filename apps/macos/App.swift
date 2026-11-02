@@ -3,6 +3,19 @@ import AppKit
 import Darwin
 import ServiceManagement
 
+enum CaptureMode: String, CaseIterable, Identifiable {
+    case live, screenshots
+    var id: String { rawValue }
+    init(storedValue: String?) { self = storedValue.flatMap(Self.init(rawValue:)) ?? .live }
+    var title: String { self == .live ? "Live view" : "Screenshots only" }
+    var description: String {
+        self == .live
+            ? "macOS shows its screen-recording indicator while an agent works in an app, so you always know."
+            : "Agents take a single picture when they need one."
+    }
+    var requestPayload: [String: String] { ["mode": rawValue] }
+}
+
 /// A connected agent, as the panel and the window show it.
 struct Agent: Identifiable, Equatable {
     let id: String
@@ -79,6 +92,9 @@ final class HostModel: ObservableObject {
     @Published var showCursors = UserDefaults.standard.object(forKey: "showAgentCursors") as? Bool ?? true {
         didSet { UserDefaults.standard.set(showCursors, forKey: "showAgentCursors"); overlay.enabled = showCursors }
     }
+    @Published var captureMode = CaptureMode(storedValue: UserDefaults.standard.string(forKey: "captureMode")) {
+        didSet { UserDefaults.standard.set(captureMode.rawValue, forKey: "captureMode"); sendCaptureMode() }
+    }
     lazy var overlay = CursorOverlay(runtime: runtime)
     lazy var pipController = PiPController(runtime: runtime)
     /// The menu-bar icon: idle, or animated in the working agents' colors.
@@ -86,6 +102,7 @@ final class HostModel: ObservableObject {
     private var workingSlots: [Int] = []
     private var animation: Timer?
     private var helper: Process?
+    private var captureModeUpdate: Task<Void, Never>?
     private var host: Process?
     private var lock: Int32 = -1
     private var timer: Timer?
@@ -142,6 +159,7 @@ final class HostModel: ObservableObject {
             native.arguments = ["--parent-pid", String(getpid()), "--command-directory", commands.path]
             native.standardOutput = FileHandle.nullDevice; native.standardError = FileHandle.nullDevice
             try native.run(); helper = native
+            sendCaptureMode()
             hostStarts = []; try launchHost()
             timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in Task { @MainActor in self?.refresh() } }
             overlay.enabled = showCursors; overlay.start()
@@ -219,10 +237,13 @@ final class HostModel: ObservableObject {
         }
     }
     /// A request to the signed helper through its private command directory.
-    func helperRequest(_ action: String) async -> [String: Any]? {
+    func helperRequest(_ action: String, captureMode: CaptureMode? = nil) async -> [String: Any]? {
         let id = UUID().uuidString
         let request = commands.appendingPathComponent("request-\(id).json"), response = commands.appendingPathComponent("response-\(id).json")
-        guard let data = try? JSONSerialization.data(withJSONObject: ["id": id, "action": action]), (try? data.write(to: request, options: .atomic)) != nil else { return nil }
+        var payload: [String: Any] = ["id": id, "action": action]
+        // The helper reads setCaptureMode's value from a top-level "mode".
+        if let captureMode { payload.merge(captureMode.requestPayload) { _, new in new } }
+        guard let data = try? JSONSerialization.data(withJSONObject: payload), (try? data.write(to: request, options: .atomic)) != nil else { return nil }
         for _ in 0..<60 {
             try? await Task.sleep(nanoseconds: 50_000_000)
             if let data = try? Data(contentsOf: response), let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
@@ -231,6 +252,20 @@ final class HostModel: ObservableObject {
         }
         try? FileManager.default.removeItem(at: request)
         return nil
+    }
+    private func sendCaptureMode() {
+        let previous = captureModeUpdate
+        let mode = captureMode
+        captureModeUpdate = Task {
+            await previous?.value
+            guard let response = await helperRequest("setCaptureMode", captureMode: mode) else {
+                detail = "Couldn't update how agents see apps: the helper didn't respond."
+                return
+            }
+            if response["success"] as? Bool != true {
+                detail = response["error"] as? String ?? response["stderr"] as? String ?? "Couldn't update how agents see apps."
+            }
+        }
     }
     /// Animates the menu-bar ripple while any agent works; several agents alternate colors per pulse.
     func setWorking(_ slots: [Int]) {
