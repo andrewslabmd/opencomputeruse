@@ -8,7 +8,8 @@ struct StreamTestWindows: StreamWindowProvider {
     var frame = StreamRect(x: 100, y: 200, width: 800, height: 400)
     func window(id: UInt32, pid: Int32) -> StreamWindowInfo? { .init(frame: frame) }
 }
-final class StreamTestSource: StreamFrameSource {
+final class StreamTestSource: StreamFrameSource, LiveFrameSource {
+    let liveFrames = LiveFrameBuffer()
     private let lock = NSLock()
     private var callback: ((StreamFrameEvent) -> Void)?
     private var wanted = false
@@ -25,7 +26,7 @@ final class StreamTestSource: StreamFrameSource {
     }
     func configure(_ configuration: StreamFrameConfiguration) { lock.withLock { configurations.append(configuration) } }
     func requestKeyframe() { lock.withLock { wanted = true; requests += 1 } }
-    func stop() { lock.withLock { stops += 1; callback = nil } }
+    func stop() { liveFrames.stop(); lock.withLock { stops += 1; callback = nil } }
     func emit(pts: Double, size: Int = 7, keyframe: Bool? = nil) {
         let (receive, key): (((StreamFrameEvent) -> Void)?, Bool) = lock.withLock {
             let key = keyframe ?? wanted

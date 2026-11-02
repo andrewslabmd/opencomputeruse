@@ -19,7 +19,7 @@ struct StreamCaptureSize: Equatable {
 /// The SCStream seam. Implementations deliver all callbacks on the supplied queue.
 protocol StreamCaptureDriver: AnyObject {
     func start(windowID: UInt32, configuration: StreamFrameConfiguration, queue: DispatchQueue,
-               output: @escaping (SCFrameStatus, CVPixelBuffer?, CMTime) -> Void,
+               output: @escaping (SCFrameStatus, CVPixelBuffer?, CMTime, LiveFrameMetadata?) -> Void,
                stopped: @escaping (Error) -> Void, ready: @escaping (Result<CGSize, Error>) -> Void)
     func update(size: StreamCaptureSize, configuration: StreamFrameConfiguration, completion: @escaping (Error?) -> Void)
     func stop()
@@ -28,20 +28,22 @@ protocol StreamCaptureDriver: AnyObject {
 final class SystemStreamCaptureDriver: NSObject, StreamCaptureDriver, SCStreamOutput, SCStreamDelegate {
     private var stream: SCStream?
     private var queue: DispatchQueue!
-    private var output: ((SCFrameStatus, CVPixelBuffer?, CMTime) -> Void)?
+    private var output: ((SCFrameStatus, CVPixelBuffer?, CMTime, LiveFrameMetadata?) -> Void)?
     private var stopped: ((Error) -> Void)?
     private var cancelled = false
     static func configuration(size: StreamCaptureSize, request: StreamFrameConfiguration) -> SCStreamConfiguration {
         let config = SCStreamConfiguration()
         config.width = size.width; config.height = size.height
         config.pixelFormat = kCVPixelFormatType_32BGRA; config.captureResolution = .nominal
+        // sRGB values, so the encoded video's BT.709 tags describe them (not the display's P3).
+        config.colorSpaceName = CGColorSpace.sRGB
         config.scalesToFit = true; config.ignoreShadowsSingleWindow = true
         config.includeChildWindows = true; config.showsCursor = false; config.capturesAudio = false
         config.queueDepth = 3; config.minimumFrameInterval = CMTime(value: 1, timescale: Int32(request.maxFPS))
         return config
     }
     func start(windowID: UInt32, configuration: StreamFrameConfiguration, queue: DispatchQueue,
-               output: @escaping (SCFrameStatus, CVPixelBuffer?, CMTime) -> Void,
+               output: @escaping (SCFrameStatus, CVPixelBuffer?, CMTime, LiveFrameMetadata?) -> Void,
                stopped: @escaping (Error) -> Void, ready: @escaping (Result<CGSize, Error>) -> Void) {
         self.queue = queue; self.output = output; self.stopped = stopped
         SCShareableContent.getExcludingDesktopWindows(true, onScreenWindowsOnly: false) { content, error in
@@ -85,7 +87,16 @@ final class SystemStreamCaptureDriver: NSObject, StreamCaptureDriver, SCStreamOu
         guard !cancelled, type == .screen,
               let attachments = (CMSampleBufferGetSampleAttachmentsArray(sample, createIfNecessary: false) as? [[SCStreamFrameInfo: Any]])?.first,
               let raw = attachments[.status] as? NSNumber, let status = SCFrameStatus(rawValue: raw.intValue) else { return }
-        output?(status, CMSampleBufferGetImageBuffer(sample), CMSampleBufferGetPresentationTimeStamp(sample))
+        let metadata: LiveFrameMetadata?
+        if let time = attachments[.displayTime] as? NSNumber,
+           let rect = attachments[.contentRect] as? NSDictionary,
+           let contentRect = CGRect(dictionaryRepresentation: rect),
+           let contentScale = attachments[.contentScale] as? NSNumber,
+           let scaleFactor = attachments[.scaleFactor] as? NSNumber {
+            metadata = .init(displayTime: CaptureClock.seconds(time.uint64Value), contentRect: contentRect,
+                             contentScale: CGFloat(contentScale.doubleValue), scaleFactor: CGFloat(scaleFactor.doubleValue))
+        } else { metadata = nil }
+        output?(status, CMSampleBufferGetImageBuffer(sample), CMSampleBufferGetPresentationTimeStamp(sample), metadata)
     }
 }
 
@@ -94,7 +105,8 @@ struct SystemStreamFrameSourceFactory: StreamFrameSourceFactory {
     func makeSource() -> StreamFrameSource { StreamCapture() }
 }
 
-final class StreamCapture: StreamFrameSource {
+final class StreamCapture: StreamFrameSource, LiveFrameSource {
+    let liveFrames = LiveFrameBuffer()
     static let resizeDebounce: TimeInterval = 0.3
     private let queue = DispatchQueue(label: "OpenComputerUse.stream-capture")
     private let driver: StreamCaptureDriver
@@ -107,6 +119,7 @@ final class StreamCapture: StreamFrameSource {
     private var configuration: StreamFrameConfiguration!
     private var windowID: UInt32 = 0
     private var size: CGSize?
+    private var previousOutput: StreamCaptureSize?
     private var pendingSize: (CGSize, TimeInterval)?
     private var state: StreamTargetState?
     private var timer: DispatchSourceTimer?
@@ -114,6 +127,7 @@ final class StreamCapture: StreamFrameSource {
     // Encoded callbacks use this independent gate; they never wait for capture's queue.
     private let gate = NSLock()
     private var forwarding = false
+    private var encoderGeneration: UUID?
 
     init(driver: StreamCaptureDriver = SystemStreamCaptureDriver(), permission: @escaping () -> Bool = { CGPreflightScreenCaptureAccess() },
          window: @escaping (UInt32) -> StreamWindowInfo? = { SystemStreamWindowProvider.lookup(id: $0) },
@@ -127,19 +141,10 @@ final class StreamCapture: StreamFrameSource {
         queue.async { [self] in
             guard !self.stopped else { return }
             self.windowID = windowID; self.configuration = configuration; self.receive = receive
-            self.encoder = self.makeEncoder { [weak self] event in
-                guard let self else { return }
-                if case .ended(let reason) = event {
-                    self.queue.async { self.finish(reason) }
-                    return
-                }
-                self.gate.lock(); let allowed = self.forwarding; self.gate.unlock()
-                // State (including sharing none) is applied by the 50 ms poll and each sample.
-                guard allowed else { return }
-                receive(event)
-            }
+            if let info = self.window(windowID) { self.size = CGSize(width: info.frame.width, height: info.frame.height) }
+            self.setEncoding(configuration.encode)
             self.driver.start(windowID: windowID, configuration: configuration, queue: self.queue,
-                output: { [weak self] status, image, pts in self?.sample(status, image: image, pts: pts) },
+                output: { [weak self] status, image, pts, metadata in self?.sample(status, image: image, pts: pts, metadata: metadata) },
                 stopped: { [weak self] error in self?.finish(Self.endReason(error)) }, ready: { [weak self] result in
                     guard let self, !self.stopped else { return }
                     switch result {
@@ -159,18 +164,48 @@ final class StreamCapture: StreamFrameSource {
         }
     }
     func configure(_ configuration: StreamFrameConfiguration) {
-        queue.async { guard !self.stopped else { return }; self.configuration = configuration; self.update() }
+        queue.async {
+            guard !self.stopped else { return }
+            if let size = self.size {
+                let old = StreamCaptureSize.output(size, maxLongEdge: self.configuration.maxLongEdge)
+                if old != .output(size, maxLongEdge: configuration.maxLongEdge) { self.previousOutput = old }
+            }
+            self.configuration = configuration; self.setEncoding(configuration.encode); self.update()
+        }
+    }
+    private func setEncoding(_ enabled: Bool) {
+        if !enabled {
+            gate.withLock { encoderGeneration = nil }
+            encoder?.stop(); encoder = nil; return
+        }
+        guard encoder == nil else { return }
+        let generation = UUID()
+        gate.withLock { encoderGeneration = generation }
+        let receive = self.receive
+        encoder = makeEncoder { [weak self] event in
+            guard let self else { return }
+            let (current, allowed) = self.gate.withLock { (self.encoderGeneration == generation, self.forwarding) }
+            guard current else { return }
+            if case .ended(let reason) = event {
+                self.queue.async { if self.encoderGeneration == generation { self.finish(reason) } }; return
+            }
+            guard allowed else { return }
+            receive?(event)
+        }
+        encoder?.requestKeyframe()
     }
     func requestKeyframe() { queue.async { self.encoder?.requestKeyframe() } }
     func stop() { queue.async { self.teardown() } }
     private func teardown() {
         guard !stopped else { return }
-        stopped = true; gate.lock(); forwarding = false; gate.unlock()
+        stopped = true; gate.lock(); forwarding = false; encoderGeneration = nil; gate.unlock()
+        liveFrames.stop()
         timer?.cancel(); timer = nil; receive = nil
         driver.stop(); encoder?.stop(); encoder = nil
     }
     private func finish(_ reason: StreamEndReason) {
         guard !stopped else { return }
+        liveFrames.stop(userStopped: reason == .capture_stopped_by_user)
         receive?(.ended(reason)); teardown()
     }
     static func endReason(_ error: Error) -> StreamEndReason {
@@ -188,17 +223,47 @@ final class StreamCapture: StreamFrameSource {
         guard self.state != state else { return }
         self.state = state
         gate.lock(); forwarding = state == .live; gate.unlock()
+        if state != .live { liveFrames.invalidate() }
         receive?(.state(state))
     }
-    private func sample(_ status: SCFrameStatus, image: CVPixelBuffer?, pts: CMTime) {
+    private func sample(_ status: SCFrameStatus, image: CVPixelBuffer?, pts: CMTime, metadata: LiveFrameMetadata?) {
         guard !stopped else { return }
-        if let next = Self.state(status: status, window: window(windowID), previous: state) { publish(next) }
-        guard state == .live, status == .complete, let image else { return }
-        do { try encoder?.encode(image, pts: pts) } catch { finish(.error) }
+        let info = window(windowID)
+        if let next = Self.state(status: status, window: info, previous: state) { publish(next) }
+        guard state == .live else { liveFrames.invalidate(); return }
+        if (status == .complete || status == .idle), let metadata, let size {
+            let output = StreamCaptureSize.output(size, maxLongEdge: configuration.maxLongEdge)
+            let currentSize = info.map { CGSize(width: $0.frame.width, height: $0.frame.height) }
+            if let image, let previousOutput,
+               (CVPixelBufferGetWidth(image) != output.width || CVPixelBufferGetHeight(image) != output.height),
+               CVPixelBufferGetWidth(image) == previousOutput.width, CVPixelBufferGetHeight(image) == previousOutput.height {
+                // The old configuration can still have queued surfaces during resize.
+                liveFrames.invalidate(); return
+            }
+            if status == .idle, let previousOutput,
+               metadata.contentRect == CGRect(x: 0, y: 0, width: previousOutput.width, height: previousOutput.height),
+               previousOutput != output { liveFrames.invalidate(); return }
+            let wrongSize = image.map { CVPixelBufferGetWidth($0) != output.width || CVPixelBufferGetHeight($0) != output.height } ?? false
+            if currentSize == size && (wrongSize || metadata.contentRect != CGRect(x: 0, y: 0, width: output.width, height: output.height)) {
+                receive?(.contentChanged); teardown(); return
+            }
+            if currentSize == size, status == .complete { previousOutput = nil }
+        } else if status == .complete, image != nil {
+            // A complete surface without identity/geometry metadata cannot be checked.
+            receive?(.contentChanged); teardown(); return
+        }
+        if let info, let size, CGSize(width: info.frame.width, height: info.frame.height) == size {
+            liveFrames.receive(status: status, image: image, metadata: metadata)
+        } else { liveFrames.invalidate() }
+        guard status == .complete, let image else { return }
+        if let encoder {
+            do { try encoder.encode(StreamFrameImages.encoderInput(image, maxLongEdge: configuration.encoderMaxLongEdge), pts: pts) }
+            catch { finish(.error) }
+        }
     }
     private func inspect() {
         guard !stopped else { return }
-        guard let info = window(windowID) else { publish(.closed); return }
+        guard let info = window(windowID) else { publish(.closed); finish(.error); return }
         if info.state == .hidden_from_capture || info.state == .hidden { publish(info.state) }
         considerResize(CGSize(width: info.frame.width, height: info.frame.height), at: now())
     }
@@ -208,11 +273,13 @@ final class StreamCapture: StreamFrameSource {
         if next == size { pendingSize = nil; return }
         if pendingSize?.0 != next { pendingSize = (next, time); return }
         if let pendingSize, time - pendingSize.1 >= Self.resizeDebounce {
+            if let size { previousOutput = .output(size, maxLongEdge: configuration.maxLongEdge) }
             size = next; self.pendingSize = nil; update()
         }
     }
     private func update() {
         guard let size, let configuration else { return }
+        liveFrames.invalidate()
         driver.update(size: .output(size, maxLongEdge: configuration.maxLongEdge), configuration: configuration) { [weak self] error in
             if let self, let error { self.finish(Self.endReason(error)) }
         }

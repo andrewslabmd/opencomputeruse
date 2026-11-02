@@ -218,7 +218,11 @@ async function captureAirpointSurfaceImage(snapshot) {
     if (image.length === 0 || image.length > 20 * 1024 * 1024) {
       throw new Error("The application-surface screenshot was invalid.");
     }
-    return { type: "image", data: image.toString("base64"), mimeType: "image/jpeg" };
+    const metadata = response.stdout ? JSON.parse(response.stdout) : {};
+    return {
+      image: { type: "image", data: image.toString("base64"), mimeType: "image/jpeg" },
+      capture_source: metadata.capture_source,
+    };
   } finally {
     await rm(path, { force: true }).catch(() => undefined);
   }
@@ -398,9 +402,12 @@ async function reportAirpointObservation(message, args) {
       text: toCanonicalYaml({ status: "observed", snapshot: snapshot.model }),
     }];
     deliveredModel = snapshot.model;
+    let captureSource;
     if (args.include_screenshot === true) {
       try {
-        content.push(await captureAirpointSurfaceImage(snapshot));
+        const capture = await captureAirpointSurfaceImage(snapshot);
+        content.push(capture.image);
+        captureSource = capture.capture_source;
       } catch (error) {
         // A failed optional image must not discard a valid AX observation.
         content.push({ type: "text", text: toCanonicalYaml({ screenshot_error: error?.message ?? String(error) }) });
@@ -410,6 +417,7 @@ async function reportAirpointObservation(message, args) {
       code: "computer_use_observation",
       surface: "use",
       pid: snapshot.pid,
+      ...(captureSource ? { capture_source: captureSource } : {}),
     });
   } catch (error) {
     deliveredModel = undefined;

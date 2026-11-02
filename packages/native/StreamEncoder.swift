@@ -73,7 +73,10 @@ final class StreamEncoder: StreamFrameEncoder {
             compressedDataAllocator: nil, outputCallback: nil, refcon: nil, compressionSessionOut: &session)
         guard result == noErr, let session else { throw StreamEncodingError(status: result) }
         for (key, value) in [(kVTCompressionPropertyKey_RealTime, kCFBooleanTrue!),
-                             (kVTCompressionPropertyKey_AllowFrameReordering, kCFBooleanFalse!)] {
+                             (kVTCompressionPropertyKey_AllowFrameReordering, kCFBooleanFalse!),
+                             (kVTCompressionPropertyKey_ColorPrimaries, kCVImageBufferColorPrimaries_ITU_R_709_2),
+                             (kVTCompressionPropertyKey_TransferFunction, kCVImageBufferTransferFunction_ITU_R_709_2),
+                             (kVTCompressionPropertyKey_YCbCrMatrix, kCVImageBufferYCbCrMatrix_ITU_R_709_2)] as [(CFString, CFTypeRef)] {
             let status = VTSessionSetProperty(session, key: key, value: value)
             guard status == noErr else { invalidate(); throw StreamEncodingError(status: status) }
         }

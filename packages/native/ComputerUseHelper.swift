@@ -179,6 +179,7 @@ private struct HelperRequest: Decodable {
     let keyboardElementID: String?
     let sinceMs: UInt64?
     let appTarget: String?
+    let mode: String?
 }
 
 private struct HelperResponse: Encodable {
@@ -197,6 +198,9 @@ private final class ComputerUseHelper {
     private let fileManager = FileManager.default
     private var stopping = false
     private let nativeQueue = DispatchQueue(label: "OpenComputerUse.native-commands")
+    private let captureQueue = DispatchQueue(label: "OpenComputerUse.screenshots")
+    private var streamServer: StreamServer?
+    private var captureMode: CaptureModeStore!
     private var queuedNativeRequests = Set<URL>() // main-thread scheduling only
     private var nativeCancellation: NativeRequestCancellation? // native queue only
     private var nextElementIdentity: UInt64 = 0
@@ -233,7 +237,9 @@ private final class ComputerUseHelper {
 
     func run() throws {
         try self.prepareDirectories()
-        let streamServer = StreamServer(commandDirectory: arguments.commandDirectory, factory: SystemStreamFrameSourceFactory())
+        captureMode = CaptureModeStore(runtime: arguments.commandDirectory.deletingLastPathComponent())
+        let streamServer = StreamServer(commandDirectory: arguments.commandDirectory, factory: SystemStreamFrameSourceFactory(), captureMode: captureMode)
+        self.streamServer = streamServer
         let streamLifecycle = StreamServerLifecycle(start: { try streamServer.start() }, stop: { streamServer.stop() })
         streamLifecycle.start()
         defer { streamLifecycle.stop() }
@@ -293,7 +299,32 @@ private final class ComputerUseHelper {
             return
         }
 
-        let controlActions = ["permissionStatus", "screenRecording", "accessibility", "eventSynthesizing", "releaseActionFocus", "listApplications", "resolveApplication"]
+        if request.action == "captureApplicationSurface" {
+            guard queuedNativeRequests.insert(requestURL).inserted else { return }
+            let arrival = CaptureClock.now()
+            captureQueue.async { [self] in
+                defer { DispatchQueue.main.async { self.queuedNativeRequests.remove(requestURL) } }
+                do {
+                    guard let ownerPID = request.ownerProcessID else {
+                        throw BackgroundAppFocusFailure(message: "Missing capture owner.")
+                    }
+                    guard let owner = try NativeProcessIdentity.read(ownerPID) else {
+                        throw BackgroundAppFocusFailure(message: "The native request owner exited.")
+                    }
+                    let cancellation = NativeRequestCancellation(requestURL: requestURL, owner: owner, parentPID: arguments.parentPID)
+                    try cancellation.check()
+                    let response = captureApplicationSurface(request, arrival: arrival)
+                    try cancellation.check()
+                    writeResponse(response, at: requestURL)
+                } catch {
+                    if fileManager.fileExists(atPath: requestURL.path) {
+                        writeResponse(captureResponse(id: request.id, error: error.localizedDescription), at: requestURL)
+                    }
+                }
+            }
+            return
+        }
+        let controlActions = ["setCaptureMode", "captureMode", "permissionStatus", "screenRecording", "accessibility", "eventSynthesizing", "releaseActionFocus", "listApplications", "resolveApplication"]
         if !controlActions.contains(request.action) {
             guard queuedNativeRequests.insert(requestURL).inserted else { return }
             let owner: NativeProcessIdentity?
@@ -337,6 +368,17 @@ private final class ComputerUseHelper {
         defer { if launching { foregroundGuard.settle() } }
         let response: HelperResponse
         switch request.action {
+        case "setCaptureMode", "captureMode":
+            do {
+                if request.action == "setCaptureMode" {
+                    guard let raw = request.mode, let mode = CaptureMode(rawValue: raw) else {
+                        return self.captureResponse(id: request.id, error: "Invalid capture mode")
+                    }
+                    try streamServer?.setCaptureMode(mode)
+                }
+                response = HelperResponse(id: request.id, granted: nil, success: true,
+                    stdout: "{\"mode\":\"\(captureMode.mode.rawValue)\"}", stderr: nil, error: nil)
+            } catch { response = self.captureResponse(id: request.id, error: error.localizedDescription) }
         case "permissionStatus":
             response = self.permissionStatus(id: request.id)
         case "listApplications":
@@ -377,8 +419,6 @@ private final class ComputerUseHelper {
                 stderr: nil,
                 error: nil
             )
-        case "captureApplicationSurface":
-            response = self.captureApplicationSurface(request)
         case "launchApplication":
             response = self.launchApplication(request)
         case "accessibilitySnapshot":
@@ -478,7 +518,7 @@ private final class ComputerUseHelper {
         )
     }
 
-    private func captureApplicationSurface(_ request: HelperRequest) -> HelperResponse {
+    private func captureApplicationSurface(_ request: HelperRequest, arrival: TimeInterval) -> HelperResponse {
         guard CGPreflightScreenCaptureAccess() else {
             return self.captureResponse(id: request.id, error: "Screen Recording permission is required")
         }
@@ -497,8 +537,12 @@ private final class ComputerUseHelper {
             return self.captureResponse(id: request.id, error: "Invalid application-surface destination")
         }
         let discovered: ApplicationSurface?
-        do { discovered = try self.applicationSurface(processID: processID, requestedTitle: nil) }
-        catch { return self.captureResponse(id: request.id, error: error.localizedDescription) }
+        do {
+            try streamServer?.checkCaptureAllowed(windowIDs: Set(preview.windowIDs ?? []), pid: processID)
+            // AX inventory shares the native queue; no capture or frame wait runs there.
+            discovered = try nativeQueue.sync { try self.applicationSurface(processID: processID, requestedTitle: nil) }
+        }
+        catch { return self.captureResponse(id: request.id, error: captureError(error)) }
         guard let discoveredSurface = discovered else {
             return self.captureResponse(id: request.id, error: "The application has no observable on-screen windows")
         }
@@ -534,69 +578,78 @@ private final class ComputerUseHelper {
             return self.captureResponse(id: request.id, error: "Could not allocate the application-surface image")
         }
 
+        let live: LiveFrame?
+        do {
+            let proven = requestedWindowIDs.isEmpty ? Set(discoveredWindows.map(\.windowID)) : requestedWindowIDs
+            try streamServer?.checkCaptureAllowed(windowIDs: Set(windows.map(\.windowID)), pid: processID)
+            live = try streamServer?.liveFrame(windowIDs: proven, pid: processID, after: arrival, size: surfaceFrame.size)
+        } catch { return self.captureResponse(id: request.id, error: captureError(error)) }
+        let liveImage = live?.cgImage()
+        var capturedWindowCount = windows.count
+        let captureSource = liveImage == nil ? "screenshot" : "live"
+
         NSGraphicsContext.saveGraphicsState()
         NSGraphicsContext.current = graphicsContext
         graphicsContext.imageInterpolation = .high
         NSColor.clear.setFill()
         NSRect(x: 0, y: 0, width: width, height: height).fill()
-        guard let shareableContent = self.shareableContent(),
-              !shareableContent.windows.isEmpty
-        else {
-            NSGraphicsContext.restoreGraphicsState()
-            return self.captureResponse(id: request.id, error: "ScreenCaptureKit could not enumerate shareable windows")
-        }
-        let captureWindowIDs = Set(windows.map(\.windowID))
-        let shareableWindows = shareableContent.windows.filter {
-            captureWindowIDs.contains($0.windowID)
-        }
-        guard !shareableWindows.isEmpty else {
-            NSGraphicsContext.restoreGraphicsState()
-            return self.captureResponse(id: request.id, error: "ScreenCaptureKit could not resolve the application-surface windows")
-        }
-        var capturedDisplayCount = 0
-        for display in shareableContent.displays {
-            let intersection = display.frame.intersection(surfaceFrame)
-            let displayWindows = shareableWindows.filter { $0.frame.intersects(display.frame) }
-            guard !intersection.isNull,
-                  intersection.width > 0,
-                  intersection.height > 0,
-                  !displayWindows.isEmpty,
-                  let image = self.captureImage(
-                      on: display,
-                      windows: displayWindows,
-                      sourceRect: CGRect(
-                          x: intersection.minX - display.frame.minX,
-                          y: intersection.minY - display.frame.minY,
-                          width: intersection.width,
-                          height: intersection.height
+        if let image = liveImage {
+            ApplicationSurfaceImage.draw(image, in: NSRect(x: 0, y: 0, width: width, height: height))
+        } else {
+            guard let shareableContent = self.shareableContent(),
+                  !shareableContent.windows.isEmpty
+            else {
+                NSGraphicsContext.restoreGraphicsState()
+                return self.captureResponse(id: request.id, error: "ScreenCaptureKit could not enumerate shareable windows")
+            }
+            let captureWindowIDs = Set(windows.map(\.windowID))
+            let shareableWindows = shareableContent.windows.filter {
+                captureWindowIDs.contains($0.windowID)
+            }
+            guard !shareableWindows.isEmpty else {
+                NSGraphicsContext.restoreGraphicsState()
+                return self.captureResponse(id: request.id, error: "ScreenCaptureKit could not resolve the application-surface windows")
+            }
+            var capturedDisplayCount = 0
+            for display in shareableContent.displays {
+                let intersection = display.frame.intersection(surfaceFrame)
+                let displayWindows = shareableWindows.filter { $0.frame.intersects(display.frame) }
+                guard !intersection.isNull,
+                      intersection.width > 0,
+                      intersection.height > 0,
+                      !displayWindows.isEmpty,
+                      let image = self.captureImage(
+                          on: display,
+                          windows: displayWindows,
+                          sourceRect: CGRect(
+                              x: intersection.minX - display.frame.minX,
+                              y: intersection.minY - display.frame.minY,
+                              width: intersection.width,
+                              height: intersection.height
+                          )
                       )
-                  )
-            else { continue }
-            let destinationRect = NSRect(
-                x: intersection.minX - surfaceFrame.minX,
-                y: surfaceFrame.maxY - intersection.maxY,
-                width: intersection.width,
-                height: intersection.height
-            )
-            let displayImage = NSImage(cgImage: image, size: destinationRect.size)
-            displayImage.draw(
-                in: destinationRect,
-                from: .zero,
-                operation: .sourceOver,
-                fraction: 1
-            )
-            capturedDisplayCount += 1
+                else { continue }
+                let destinationRect = NSRect(
+                    x: intersection.minX - surfaceFrame.minX,
+                    y: surfaceFrame.maxY - intersection.maxY,
+                    width: intersection.width,
+                    height: intersection.height
+                )
+                ApplicationSurfaceImage.draw(image, in: destinationRect)
+                capturedDisplayCount += 1
+            }
+            NSGraphicsContext.restoreGraphicsState()
+            guard capturedDisplayCount > 0 else {
+                return self.captureResponse(id: request.id, error: "Could not capture any application-surface windows")
+            }
+            capturedWindowCount = shareableWindows.count
         }
-        NSGraphicsContext.restoreGraphicsState()
-        guard capturedDisplayCount > 0 else {
-            return self.captureResponse(id: request.id, error: "Could not capture any application-surface windows")
-        }
+        if liveImage != nil { NSGraphicsContext.restoreGraphicsState() }
+        do { try streamServer?.checkCaptureAllowed(windowIDs: Set(windows.map(\.windowID)), pid: processID) }
+        catch { return self.captureResponse(id: request.id, error: captureError(error)) }
 
         let isPNG = destination.pathExtension.compare("png", options: .caseInsensitive) == .orderedSame
-        let imageData = bitmap.representation(
-            using: isPNG ? .png : .jpeg,
-            properties: isPNG ? [:] : [.compressionFactor: 0.86]
-        )
+        let imageData = ApplicationSurfaceImage.encode(bitmap, isPNG: isPNG)
         guard let imageData else {
             return self.captureResponse(id: request.id, error: "Could not encode the application-surface image")
         }
@@ -613,21 +666,8 @@ private final class ComputerUseHelper {
         // Capture does not activate an app or generate input. Concurrent human
         // cursor/focus changes are expected during background operation and do
         // not invalidate the captured app-window image.
-        let metadata: [String: Any] = [
-            "success": true,
-            "data": [
-                "observations": [[
-                    "coordinates": [
-                        "image_size_pixels": ["width": width, "height": height],
-                        "logical_bounds": [
-                            [surfaceFrame.minX, surfaceFrame.minY],
-                            [surfaceFrame.width, surfaceFrame.height],
-                        ],
-                    ],
-                    "window_count": shareableWindows.count,
-                ]],
-            ],
-        ]
+        let metadata = ApplicationSurfaceImage.metadata(width: width, height: height, bounds: surfaceFrame,
+                                                        windowCount: capturedWindowCount, source: captureSource)
         guard let metadataData = try? JSONSerialization.data(withJSONObject: metadata),
               let stdout = String(data: metadataData, encoding: .utf8)
         else {
@@ -642,6 +682,10 @@ private final class ComputerUseHelper {
             stderr: nil,
             error: nil
         )
+    }
+
+    private func captureError(_ error: Error) -> String {
+        (error as? LiveCaptureError)?.rawValue ?? error.localizedDescription
     }
 
     private func shareableContent() -> SCShareableContent? {

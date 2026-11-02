@@ -13,11 +13,14 @@ enum StreamFrameEvent {
     case sample(StreamEncodedSample)
     case state(StreamTargetState)
     case ended(StreamEndReason)
+    case contentChanged // Internal only; the socket still ends with reason error.
 }
 struct StreamFrameConfiguration: Equatable {
     var maxFPS: Int
     var maxLongEdge: Int?
     var codec: StreamCodec
+    var encode: Bool = true
+    var encoderMaxLongEdge: Int? = nil
 }
 enum StreamSourceError: Error { case noPermission, codecUnsupported }
 
@@ -98,6 +101,13 @@ final class StreamServer {
     private let factory: StreamFrameSourceFactory
     private let permission: () -> Bool
     private let authenticationTimeout: TimeInterval
+    private let captureMode: CaptureModeStore?
+    private struct Suppression {
+        var pid: Int32
+        var window: UInt32
+        var userStopped: Bool
+    }
+    private var suppressed: [String: Suppression] = [:]
     private var token = ""
     private var listener: Int32 = -1
     private var acceptSource: DispatchSourceRead?
@@ -111,10 +121,48 @@ final class StreamServer {
     init(commandDirectory: URL, factory: StreamFrameSourceFactory,
          windows: StreamWindowProvider = SystemStreamWindowProvider(),
          permission: @escaping () -> Bool = { CGPreflightScreenCaptureAccess() },
-         helloTimeout: TimeInterval = StreamServer.helloTimeout) {
+         helloTimeout: TimeInterval = StreamServer.helloTimeout, captureMode: CaptureModeStore? = nil) {
         agents = StreamAgents(commandDirectory: commandDirectory, windows: windows)
+        self.captureMode = captureMode
         self.factory = factory; self.permission = permission; authenticationTimeout = helloTimeout
         queue.setSpecific(key: queueKey, value: true)
+    }
+    func setCaptureMode(_ mode: CaptureMode) throws {
+        try queue.sync { try captureMode?.set(mode); refresh() }
+    }
+    private func checkCaptureAllowedOnQueue(windowIDs: Set<UInt32>, pid: Int32) throws {
+        let stopped = suppressed.values.contains { $0.userStopped && $0.pid == pid && windowIDs.contains($0.window) }
+        let stopping = snapshot.targets.values.contains { target in
+            guard target.pid == pid, windowIDs.contains(target.window_id),
+                  let source = sessions[.init(window: target.window_id, codec: .h264)]?.source as? LiveFrameSource else { return false }
+            return source.liveFrames.captureStoppedByUser
+        }
+        if stopped || stopping { throw LiveCaptureError.capture_stopped_by_user }
+    }
+    func checkCaptureAllowed(windowIDs: Set<UInt32>, pid: Int32) throws {
+        try queue.sync { refresh(); try checkCaptureAllowedOnQueue(windowIDs: windowIDs, pid: pid) }
+    }
+    func liveFrame(windowIDs: Set<UInt32>, pid: Int32, after arrival: TimeInterval, size: CGSize) throws -> LiveFrame? {
+        let buffer: LiveFrameBuffer? = try queue.sync {
+            refresh()
+            try checkCaptureAllowedOnQueue(windowIDs: windowIDs, pid: pid)
+            guard captureMode?.mode == .live, windowIDs.count == 1, let window = windowIDs.first,
+                  snapshot.targets.values.contains(where: {
+                      $0.pid == pid && $0.window_id == window && $0.state == .live
+                  }) else { return nil }
+            return (sessions[.init(window: window, codec: .h264)]?.source as? LiveFrameSource)?.liveFrames
+        }
+        // Never hold the server queue while awaiting the next sample.
+        let frame = try buffer?.frame(after: arrival, size: size)
+        try checkCaptureAllowed(windowIDs: windowIDs, pid: pid)
+        return queue.sync {
+            guard captureMode?.mode == .live, !snapshot.paused,
+                  snapshot.targets.values.contains(where: { $0.pid == pid && windowIDs.contains($0.window_id) && $0.state == .live }),
+                  let window = windowIDs.first,
+                  let current = sessions[.init(window: window, codec: .h264)]?.source as? LiveFrameSource,
+                  current.liveFrames === buffer else { return nil }
+            return frame
+        }
     }
     func start() throws { try queue.sync { try startOnQueue() } }
     func stop() { queue.sync { stopOnQueue() } }
@@ -163,7 +211,7 @@ final class StreamServer {
             source.setEventHandler { [weak self] in self?.acceptClients() }
             source.setCancelHandler { Darwin.close(fd) }
             acceptSource = source; source.resume()
-            snapshot = agents.read()
+            refresh()
             let poll = DispatchSource.makeTimerSource(queue: queue)
             poll.schedule(deadline: .now() + Self.pollInterval, repeating: Self.pollInterval)
             poll.setEventHandler { [weak self] in self?.refresh() }
@@ -270,6 +318,8 @@ final class StreamServer {
         guard (1...30).contains(request.max_fps), request.max_long_edge.map({ $0 > 0 }) ?? true else { disconnect(client); return }
         if client.subscriptions[request.agent] != nil { end(request.agent, client: client, reason: .unsubscribed) }
         let key = SessionKey(window: target.window_id, codec: request.codec)
+        // Opening a viewer explicitly permits capture again, including after userStopped.
+        suppressed = suppressed.filter { $0.value.window != key.window }
         let sub = Subscription(request: request, key: key)
         client.subscriptions[request.agent] = sub
         do { try ensureSession(key) } catch {
@@ -283,10 +333,19 @@ final class StreamServer {
         if let cursor = snapshot.cursors[request.agent] { send(.cursor(cursor), to: client) }
         sessions[key]?.source.requestKeyframe()
     }
+    private func agentKeys() -> Set<SessionKey> {
+        guard captureMode?.mode == .live, !snapshot.paused, permission() else { return [] }
+        return Set(snapshot.targets.values.filter {
+            $0.state != .closed && $0.state != .no_permission && suppressed[$0.agent] == nil
+        }.map { SessionKey(window: $0.window_id, codec: .h264) })
+    }
     private func configuration(for key: SessionKey) -> StreamFrameConfiguration {
         let requests = clients.values.flatMap { $0.subscriptions.values }.filter { $0.key == key }.map(\.request)
-        return .init(maxFPS: requests.map(\.max_fps).max()!,
-                     maxLongEdge: requests.contains(where: { $0.max_long_edge == nil }) ? nil : requests.compactMap(\.max_long_edge).max(), codec: key.codec)
+        let live = agentKeys().contains(key)
+        let viewerEdge = requests.contains(where: { $0.max_long_edge == nil }) ? nil : requests.compactMap(\.max_long_edge).max()
+        return .init(maxFPS: max(live ? 15 : 0, requests.map(\.max_fps).max() ?? 0),
+                     maxLongEdge: live ? nil : viewerEdge,
+                     codec: key.codec, encode: !requests.isEmpty, encoderMaxLongEdge: live ? viewerEdge : nil)
     }
     private func ensureSession(_ key: SessionKey) throws {
         let config = configuration(for: key)
@@ -315,13 +374,15 @@ final class StreamServer {
         } catch { sessions[key] = nil; session.source.stop(); throw error }
     }
     private func reconcileSessions() {
-        let used = Set(clients.values.flatMap { $0.subscriptions.values.map(\.key) })
+        let used = Set(clients.values.flatMap { $0.subscriptions.values.map(\.key) }).union(agentKeys())
         for (key, session) in sessions where !used.contains(key) { sessions[key] = nil; session.source.stop() }
         for key in used {
-            if let session = sessions[key] {
-                let config = configuration(for: key)
-                if session.configuration != config { session.configuration = config; session.source.configure(config) }
-            }
+            try? ensureSession(key)
+        }
+    }
+    private func suppress(_ key: SessionKey, userStopped: Bool) {
+        for target in snapshot.targets.values where target.window_id == key.window {
+            suppressed[target.agent] = .init(pid: target.pid, window: key.window, userStopped: userStopped)
         }
     }
     private func effectiveTarget(_ target: StreamTarget, key: SessionKey) -> StreamTarget {
@@ -332,6 +393,9 @@ final class StreamServer {
     private func refresh() {
         let previous = snapshot
         snapshot = agents.read()
+        suppressed = suppressed.filter { agent, block in
+            agents.targetIdentities[agent].map { $0.window == block.window && $0.pid == block.pid } ?? false
+        }
         for client in Array(clients.values) where client.authenticated && !client.closing {
             for (agent, sub) in Array(client.subscriptions) {
                 guard !snapshot.paused else { end(agent, client: client, reason: .paused); continue }
@@ -397,10 +461,21 @@ final class StreamServer {
                 }
                 if client.listed { publishAgents(client) }
             }
+        case .contentChanged:
+            suppress(key, userStopped: false)
+            endSession(key, reason: .error)
         case .ended(let reason):
-            for client in Array(clients.values) {
-                for (agent, sub) in Array(client.subscriptions) where sub.key == key { end(agent, client: client, reason: reason) }
-            }
+            // A failed live stream is not restarted for that target (it would retry every
+            // poll); screenshots fall back to one-off capture. A user stop also blocks them.
+            suppress(key, userStopped: reason == .capture_stopped_by_user)
+            endSession(key, reason: reason)
+        }
+    }
+    private func endSession(_ key: SessionKey, reason: StreamEndReason) {
+        let session = sessions.removeValue(forKey: key)
+        session?.source.stop()
+        for client in Array(clients.values) {
+            for (agent, sub) in Array(client.subscriptions) where sub.key == key { end(agent, client: client, reason: reason) }
         }
     }
     private func end(_ agent: String, client: Client, reason: StreamEndReason) {

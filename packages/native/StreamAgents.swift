@@ -83,6 +83,9 @@ final class StreamAgents {
     }
     let runtime: URL
     private let windows: StreamWindowProvider
+    // Retain only claim identity while paused, so Pause cannot revoke a user's
+    // capture stop unless the host actually withdraws/changes the targets entry.
+    private(set) var targetIdentities: [String: (pid: Int32, window: UInt32)] = [:]
     private var targetFile = FileValue<[Target]>()
     private var cursorFile = FileValue<[Cursor]>()
     private var controlFile = FileValue<Control>()
@@ -93,6 +96,10 @@ final class StreamAgents {
     func read() -> StreamAgentSnapshot {
         let paused = controlFile.read(runtime.appendingPathComponent("status.json"))?.paused ?? true
         let targets = targetFile.read(runtime.appendingPathComponent("targets.json")) ?? []
+        targetIdentities = [:]
+        for entry in targets where entry.window_ids.contains(entry.main_window_id) && targetIdentities[entry.client] == nil {
+            targetIdentities[entry.client] = (entry.pid, entry.main_window_id)
+        }
         let cursors = cursorFile.read(runtime.appendingPathComponent("cursors.json")) ?? []
         var result = StreamAgentSnapshot(paused: paused, agents: [], targets: [:], cursors: [:])
         guard !paused else { return result }
