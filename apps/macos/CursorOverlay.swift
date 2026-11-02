@@ -108,6 +108,8 @@ final class AgentCursorView: NSView {
     private var activity: Bool?
     private let label = CATextLayer()
     private let labelBackground = CALayer()
+    private let keyboard = CALayer()
+    var showsBorder = true
     private var shown: AgentCursor?
     private var color = NSColor.systemBlue
     // Phosphor navigation-arrow (fill), as in the app icon; see THIRD_PARTY_NOTICES.md.
@@ -129,16 +131,19 @@ final class AgentCursorView: NSView {
         label.fontSize = 11; label.font = NSFont.systemFont(ofSize: 11, weight: .semibold)
         label.foregroundColor = NSColor.white.cgColor; label.alignmentMode = .center
         labelBackground.addSublayer(label)
+        keyboard.contentsGravity = .resizeAspect
+        labelBackground.addSublayer(keyboard)
         pointer.position = .zero
         marker.addSublayer(labelBackground); marker.addSublayer(pointer)
         for sublayer in [border, marker] { layer?.addSublayer(sublayer) }
+        for sublayer in [pointer, label, labelBackground, border, keyboard] { sublayer.contentsScale = 2 }
     }
     required init?(coder: NSCoder) { nil }
 
     override func viewDidChangeBackingProperties() {
         super.viewDidChangeBackingProperties()
         let scale = window?.backingScaleFactor ?? 2
-        for sublayer in [pointer, label, labelBackground, border] { sublayer.contentsScale = scale }
+        for sublayer in [pointer, label, labelBackground, border, keyboard] { sublayer.contentsScale = scale }
     }
 
     func show(_ cursor: AgentCursor, windowOrigin: CGPoint) {
@@ -149,10 +154,20 @@ final class AgentCursorView: NSView {
         CATransaction.setDisableActions(true)
         border.frame = bounds
         border.path = CGPath(roundedRect: bounds.insetBy(dx: 1, dy: 1), cornerWidth: 14, cornerHeight: 14, transform: nil)
-        label.string = cursor.name
-        let textWidth = (cursor.name as NSString).size(withAttributes: [.font: NSFont.systemFont(ofSize: 11, weight: .semibold)]).width
-        labelBackground.bounds = CGRect(x: 0, y: 0, width: ceil(textWidth) + 14, height: 18)
-        label.frame = labelBackground.bounds.insetBy(dx: 0, dy: 2)
+        border.isHidden = !showsBorder
+        marker.isHidden = false
+        let typing = ["type", "hotkey"].contains(cursor.kind)
+        let text = typing ? "Typing" : cursor.name
+        label.string = text
+        keyboard.isHidden = !typing
+        keyboard.contents = NSImage(systemSymbolName: "keyboard", accessibilityDescription: "Typing")?
+            .withSymbolConfiguration(.init(pointSize: 11, weight: .semibold))?
+            .withSymbolConfiguration(.init(paletteColors: [.white]))?
+            .layerContents(forContentsScale: window?.backingScaleFactor ?? 2)
+        let textWidth = (text as NSString).size(withAttributes: [.font: NSFont.systemFont(ofSize: 11, weight: .semibold)]).width
+        labelBackground.bounds = CGRect(x: 0, y: 0, width: ceil(textWidth) + 14 + (typing ? 18 : 0), height: 18)
+        label.frame = CGRect(x: typing ? 22 : 7, y: 2, width: ceil(textWidth), height: 14)
+        keyboard.frame = CGRect(x: 6, y: 3, width: 13, height: 12)
         labelBackground.position = CGPoint(x: 14 + labelBackground.bounds.width / 2, y: 24)
         CATransaction.commit()
         setActivity(busy: cursor.busy == true)
@@ -169,14 +184,19 @@ final class AgentCursorView: NSView {
             // A drag: glide on from the start to the end point.
             let end = CGPoint(x: toX - windowOrigin.x, y: toY - windowOrigin.y)
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
-                CATransaction.begin(); CATransaction.setAnimationDuration(0.4); self?.place(end); CATransaction.commit()
+                CATransaction.begin(); CATransaction.setAnimationDuration(0.4); if self?.shown?.at == cursor.at { self?.place(end) }; CATransaction.commit()
             }
         }
         if moved && ["click", "right_click", "long_press", "open", "perform_action"].contains(cursor.kind) {
             // After the glide, where the action lands.
-            DispatchQueue.main.asyncAfter(deadline: .now() + (first ? 0 : 0.25)) { [weak self] in self?.ripple(at: point) }
+            DispatchQueue.main.asyncAfter(deadline: .now() + (first ? 0 : 0.25)) { [weak self] in if self?.shown?.at == cursor.at { self?.ripple(at: point) } }
         }
         shown = cursor
+    }
+
+    func reset() {
+        shown = nil; activity = nil
+        marker.removeAllAnimations(); marker.isHidden = true
     }
 
     private func place(_ point: CGPoint) { marker.position = point }

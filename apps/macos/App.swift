@@ -80,6 +80,7 @@ final class HostModel: ObservableObject {
         didSet { UserDefaults.standard.set(showCursors, forKey: "showAgentCursors"); overlay.enabled = showCursors }
     }
     lazy var overlay = CursorOverlay(runtime: runtime)
+    lazy var pipController = PiPController(runtime: runtime)
     /// The menu-bar icon: idle, or animated in the working agents' colors.
     @Published var menuBarImage = MenuBarIcon.make()
     private var workingSlots: [Int] = []
@@ -175,8 +176,8 @@ final class HostModel: ObservableObject {
     func refresh() {
         ticks += 1
         if ticks % 5 == 0 { refreshSetup() }
-        guard helper?.isRunning == true else { health = .unavailable; return }
-        guard host?.isRunning == true else { overlay.clear(); setWorking([]); hostPID = nil; restartHost(); return }
+        guard helper?.isRunning == true else { health = .unavailable; pipController.setStopped(true); return }
+        guard host?.isRunning == true else { pipController.setStopped(true); overlay.clear(); setWorking([]); hostPID = nil; restartHost(); return }
         guard let data = try? Data(contentsOf: runtime.appendingPathComponent("status.json")), let state = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return }
         paused = state["paused"] as? Bool ?? false
         health = paused ? .stopped : .ready
@@ -203,6 +204,8 @@ final class HostModel: ObservableObject {
             return Agent(id: id, name: name, app: workflow?.app, appPID: workflow?.pid, slot: workflow?.slot, busy: workflow?.busy ?? false, tokens: tokens)
         }
         if next != agents { agents = next }
+        let connected = Set((state["clients"] as? [[String: Any]] ?? []).compactMap { $0["id"] as? String })
+        pipController.updateHost(connectedIDs: connected, stopped: paused, noPermission: screenRecording == false)
     }
     /// Permissions, open at login and the command-line tool: things that change rarely.
     func refreshSetup() {
@@ -246,7 +249,8 @@ final class HostModel: ObservableObject {
     }
 
     // MARK: Actions
-    func stop() { command(["stop"]) }
+    func stop() { pipController.setStopped(true); command(["stop"]) }
+    func watch(_ agent: Agent) { pipController.watch(agent) }
     func resume() { command(["resume"]) }
     func disconnect(_ agent: Agent) { command(["revoke", agent.id]) }
     func command(_ args: [String]) {
@@ -331,7 +335,7 @@ final class HostModel: ObservableObject {
     }
     func revealRuntime() { NSWorkspace.shared.activateFileViewerSelecting([runtime]) }
     func repair() {
-        timer?.invalidate(); overlay.clear(); host?.terminate(); helper?.terminate()
+        timer?.invalidate(); overlay.clear(); pipController.setStopped(true); host?.terminate(); helper?.terminate()
         let children = [host, helper].compactMap { $0 }
         Task {
             await Task.detached {
@@ -344,6 +348,7 @@ final class HostModel: ObservableObject {
         }
     }
     func quit() {
+        pipController.closeAll()
         timer?.invalidate(); overlay.clear(); host?.terminate(); helper?.terminate()
         let children = [host, helper].compactMap { $0 }
         Task {
@@ -397,6 +402,7 @@ struct MenuBarLabel: View {
     @Environment(\.openWindow) private var openWindow
     var body: some View {
         Image(nsImage: image)
+            .background(PiPStatusItemAnchor { HostModel.shared.pipController.statusItemFrame = $0 })
             .onAppear { SettingsWindow.shared.open = { openWindow(id: SettingsWindow.id) } }
     }
 }
