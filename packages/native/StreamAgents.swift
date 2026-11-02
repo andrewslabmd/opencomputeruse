@@ -19,11 +19,24 @@ struct SystemStreamWindowProvider: StreamWindowProvider {
         Self.lookup(id: id, pid: pid)
     }
     static func lookup(id: UInt32, pid: Int32? = nil) -> StreamWindowInfo? {
-        guard let windows = CGWindowListCopyWindowInfo(.optionIncludingWindow, id) as? [[String: Any]],
-              let info = windows.first(where: {
-                  ($0[kCGWindowNumber as String] as? NSNumber)?.uint32Value == id &&
-                  (pid == nil || ($0[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value == pid)
-              }), let bounds = info[kCGWindowBounds as String] as? NSDictionary,
+        func matching(_ list: CFArray?) -> [String: Any]? {
+            (list as? [[String: Any]])?.first(where: {
+                ($0[kCGWindowNumber as String] as? NSNumber)?.uint32Value == id &&
+                (pid == nil || ($0[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value == pid)
+            })
+        }
+        // .optionIncludingWindow leaves out a regular app's minimized windows and a hidden
+        // app's windows (measured 2026-11-02). Only on that miss, ask for this window's own
+        // description, which lists every window that still exists. Existence is all this
+        // says: SCStream's `suspended` status decides minimized, and a window that no longer
+        // exists is closed.
+        var found = matching(CGWindowListCopyWindowInfo(.optionIncludingWindow, id))
+        if found == nil {
+            var ids: [UnsafeRawPointer?] = [UnsafeRawPointer(bitPattern: UInt(id))]
+            let array = ids.withUnsafeMutableBufferPointer { CFArrayCreate(nil, $0.baseAddress, 1, nil) }
+            found = matching(array.flatMap { CGWindowListCreateDescriptionFromArray($0) })
+        }
+        guard let info = found, let bounds = info[kCGWindowBounds as String] as? NSDictionary,
               let rect = CGRect(dictionaryRepresentation: bounds) else { return nil }
         let owner = (info[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value
         let sharing = (info[kCGWindowSharingState as String] as? NSNumber)?.uint32Value

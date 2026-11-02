@@ -145,7 +145,7 @@ final class StreamCapture: StreamFrameSource, LiveFrameSource {
             self.setEncoding(configuration.encode)
             self.driver.start(windowID: windowID, configuration: configuration, queue: self.queue,
                 output: { [weak self] status, image, pts, metadata in self?.sample(status, image: image, pts: pts, metadata: metadata) },
-                stopped: { [weak self] error in self?.finish(Self.endReason(error)) }, ready: { [weak self] result in
+                stopped: { [weak self] error in self?.stoppedWithError(error) }, ready: { [weak self] result in
                     guard let self, !self.stopped else { return }
                     switch result {
                     case .success(let size):
@@ -244,13 +244,21 @@ final class StreamCapture: StreamFrameSource, LiveFrameSource {
                metadata.contentRect == CGRect(x: 0, y: 0, width: previousOutput.width, height: previousOutput.height),
                previousOutput != output { liveFrames.invalidate(); return }
             let wrongSize = image.map { CVPixelBufferGetWidth($0) != output.width || CVPixelBufferGetHeight($0) != output.height } ?? false
+            // A child window beyond the parent's frame makes ScreenCaptureKit scale the whole
+            // composition into the output (Phase 0), so a smaller contentRect is expected. Such a
+            // frame is never an agent's screenshot (D6 rule 3), but the stream and PiP go on.
             if currentSize == size && (wrongSize || metadata.contentRect != CGRect(x: 0, y: 0, width: output.width, height: output.height)) {
-                receive?(.contentChanged); teardown(); return
+                liveFrames.invalidate()
+                if let image, status == .complete, let encoder {
+                    do { try encoder.encode(StreamFrameImages.encoderInput(image, maxLongEdge: configuration.encoderMaxLongEdge), pts: pts) }
+                    catch { finish(.error) }
+                }
+                return
             }
             if currentSize == size, status == .complete { previousOutput = nil }
         } else if status == .complete, image != nil {
-            // A complete surface without identity/geometry metadata cannot be checked.
-            receive?(.contentChanged); teardown(); return
+            // A complete surface without geometry metadata can't be checked: not for agents.
+            liveFrames.invalidate()
         }
         if let info, let size, CGSize(width: info.frame.width, height: info.frame.height) == size {
             liveFrames.receive(status: status, image: image, metadata: metadata)
@@ -261,9 +269,17 @@ final class StreamCapture: StreamFrameSource, LiveFrameSource {
             catch { finish(.error) }
         }
     }
+    /// ScreenCaptureKit also stops a stream with an error when its window is destroyed;
+    /// that error can arrive before the poll sees the window gone. It is a close, not a failure.
+    private func stoppedWithError(_ error: Error) {
+        guard !stopped else { return }
+        if window(windowID) == nil { publish(.closed); teardown() } else { finish(Self.endReason(error)) }
+    }
     private func inspect() {
         guard !stopped else { return }
-        guard let info = window(windowID) else { publish(.closed); finish(.error); return }
+        // A closed window isn't an error: viewers keep their subscription in state closed and
+        // follow the agent's next target (plan §1); capture of this window stops.
+        guard let info = window(windowID) else { publish(.closed); teardown(); return }
         if info.state == .hidden_from_capture || info.state == .hidden { publish(info.state) }
         considerResize(CGSize(width: info.frame.width, height: info.frame.height), at: now())
     }

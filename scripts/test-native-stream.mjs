@@ -183,7 +183,12 @@ try {
     assert.ok(frame.centerRGB.every((v, i) => Math.abs(v - [0,166,166][i]) <= 16));
     return { cover, frame, order };
   });
-  for (const [name, restore, state] of [['minimize', 'restore', 'minimized'], ['hide', 'unhide', 'hidden'], ['sharingNone', 'sharingReadOnly', 'hidden_from_capture']]) {
+  // The fixture stays an accessory app: as a regular app it once became frontmost during a
+  // run (2026-11-02). macOS doesn't report an accessory app as hidden (isHidden stays false
+  // from outside), so its hidden window pauses the stream and reads as minimized. The
+  // regular-app `hidden` mapping was checked against Calculator (isHidden true, window left
+  // out of the per-window list), not in this script.
+  for (const [name, restore, state] of [['minimize', 'restore', 'minimized'], ['hide', 'unhide', 'minimized'], ['sharingNone', 'sharingReadOnly', 'hidden_from_capture']]) {
     await caseRun(name, async () => {
       const from = messages.length; await command(name); const changed = await targetState(state, from);
       const restoreFrom = messages.length; await command(restore); await targetState('live', restoreFrom);
@@ -205,7 +210,13 @@ try {
     await command('solid'); await sleep(500);
     const path = join(runtime, 'observations', 'stream-one-off.jpg');
     await mkdir(join(runtime, 'observations'), { recursive: true });
-    const capture = await helper('captureApplicationSurface', { preview: { kind: 'pid', value: String(fixture.pid), windowIDs: [fixture.window], path } });
+    // A true one-off (not a live frame) while the viewer's stream runs: does the purple pill
+    // show in what's on screen? Live view is switched off for this capture only.
+    await helper('setCaptureMode', { mode: 'screenshots' });
+    let capture;
+    try { capture = await helper('captureApplicationSurface', { preview: { kind: 'pid', value: String(fixture.pid), windowIDs: [fixture.window], path } }); }
+    finally { await helper('setCaptureMode', { mode: 'live' }); }
+    assert.equal(capture.capture_source, 'screenshot', 'one-off capture expected');
     const savedPath = join(dir, 'one-off-during-stream.jpg');
     await writeFile(savedPath, await readFile(path));
     results.native.oneOffPath = savedPath;
@@ -227,7 +238,10 @@ try {
   const final = JSON.parse(await readFile(fixture.state, 'utf8'));
   assert.ok(!final.foreground_changes.some(c => owned.has(c.to)), 'Owned app activated');
   results.frontmostAfter = latest.frontmost;
-  assert.equal(results.frontmostAfter, results.frontmostBefore, 'Frontmost app changed');
+  // The user may switch apps during a run (Mario's rule); only our own processes coming
+  // forward fail it (the watcher and the fixture's activation log check that throughout).
+  assert.ok(!owned.has(results.frontmostAfter), 'An owned app is frontmost at the end');
+  if (results.frontmostAfter !== results.frontmostBefore) results.userSwitchedApps = true;
   results.finalFixture = final;
   results.native.status = 'passed; visual review pending';
 } catch (error) {
@@ -248,7 +262,7 @@ try {
     const end = Date.now() + 15000;
     while (Date.now() < end && processes().some(p => p.pid === devPid || p.pid === helperPid || p.parent === devPid)) await sleep(50);
     const expected = new Set(['host-token', 'host.lock', 'host.sock', 'stream.sock', 'host.pid', 'status.json', 'targets.json', 'cursors.json',
-      'helper-commands', 'observations', 'control-state.json', 'input-audit.jsonl']);
+      'helper-commands', 'observations', 'control-state.json', 'input-audit.jsonl', 'capture-mode.json']);
     results.runtimeCleanup = [];
     for (const name of await readdir(runtime)) {
       if (expected.has(name)) { await rm(join(runtime, name), { recursive: true, force: true }); results.runtimeCleanup.push(name); }

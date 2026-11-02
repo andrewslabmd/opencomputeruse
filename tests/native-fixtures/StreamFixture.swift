@@ -25,6 +25,7 @@ final class StreamFixture: NSObject, NSApplicationDelegate, NSMenuDelegate {
     let output = URL(fileURLWithPath: CommandLine.arguments[1])
     let commands = URL(fileURLWithPath: CommandLine.arguments[2])
     var window: NSWindow!
+    var closedWindowNumber = 0
     var child: NSWindow?, sheet: NSWindow?, popover: NSPopover?, menu: NSMenu?
     let content = ScrollingContent()
     var lastCommand = "", commandError: String?
@@ -36,14 +37,14 @@ final class StreamFixture: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func record() {
         let pid = ProcessInfo.processInfo.processIdentifier
         let windows = (CGWindowListCopyWindowInfo(.optionAll, kCGNullWindowID) as? [[String: Any]] ?? []).filter { ($0[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value == pid }
-        let state: [String: Any] = ["pid": pid, "window": window.windowNumber,
+        let state: [String: Any] = ["pid": pid, "window": window?.windowNumber ?? closedWindowNumber,
             "window_ids": windows.compactMap { $0[kCGWindowNumber as String] },
             "windows": windows, "active": NSApp.isActive, "hidden": NSApp.isHidden,
-            "minimized": window.isMiniaturized, "visible": window.isVisible,
-            "frame": [window.frame.minX, window.frame.minY, window.frame.width, window.frame.height],
+            "minimized": window?.isMiniaturized ?? false, "visible": window?.isVisible ?? false, "closed": window == nil,
+            "frame": window.map { [$0.frame.minX, $0.frame.minY, $0.frame.width, $0.frame.height] } ?? [],
             "screen": [screen.frame.width, screen.frame.height],
             "visible_screen": [screen.visibleFrame.width, screen.visibleFrame.height],
-            "animating": content.animated, "sharing": window.sharingType.rawValue,
+            "animating": content.animated, "sharing": window?.sharingType.rawValue ?? 0,
             "child": child?.windowNumber ?? 0, "popover": popover?.isShown ?? false,
             "sheet": sheet?.windowNumber ?? 0, "menu_open": menuOpen,
             "last_command": lastCommand, "command_error": commandError ?? NSNull() as Any,
@@ -105,7 +106,8 @@ final class StreamFixture: NSObject, NSApplicationDelegate, NSMenuDelegate {
             var frame = window.frame
             frame.size = NSSize(width: command["width"] as? Double ?? 900, height: command["height"] as? Double ?? 600)
             window.setFrame(frame, display: true)
-        case "close": window.close()
+        // Like most apps, closing destroys the window: release it so the window server drops it.
+        case "close": closedWindowNumber = window.windowNumber; window.close(); window.contentView = nil; window = nil
         case "sharingNone": window.sharingType = .none
         case "sharingReadOnly": window.sharingType = .readOnly
         case "child":

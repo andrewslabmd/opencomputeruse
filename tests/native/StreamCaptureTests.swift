@@ -216,30 +216,60 @@ final class StreamCaptureTests: XCTestCase {
         XCTAssertTrue(try source.liveFrames.frame(after: arrival, size: CGSize(width: 1000, height: 500))?.image === resized)
         source.stop()
     }
-    func testChangedContentStopsBeforeEncodingAndWindowClosingReleasesDriver() throws {
-        for closed in [false, true] {
-            let driver = CaptureDriverFake(), encoder = CaptureEncoderFake()
-            var info: StreamWindowInfo? = live
-            let ended = expectation(description: "ended")
-            let source = StreamCapture(driver: driver, permission: { true }, window: { _ in info }, makeEncoder: { encoder.receive = $0; return encoder })
-            try source.start(windowID: 42, configuration: request) { event in
-                switch event {
-                case .contentChanged: XCTAssertFalse(closed); ended.fulfill()
-                case .ended(.error): XCTAssertTrue(closed); ended.fulfill()
-                default: break
-                }
-            }
-            streamEventually { driver.queue != nil }
-            var image: CVPixelBuffer?
-            XCTAssertEqual(CVPixelBufferCreate(nil, 800, 400, kCVPixelFormatType_32BGRA, nil, &image), kCVReturnSuccess)
-            driver.queue.async {
-                if closed { info = nil }
-                driver.output?(.complete, image, .zero, .init(displayTime: CaptureClock.now(),
-                    contentRect: CGRect(x: 10, y: 0, width: 790, height: 400), contentScale: 1, scaleFactor: 2))
-            }
-            wait(for: [ended], timeout: 3)
-            driver.queue.sync { XCTAssertEqual(encoder.count, 0); XCTAssertEqual(driver.stopCount, 1) }
+    func testScaledCompositionKeepsStreamingButIsNotAnAgentFrame() throws {
+        // A child window beyond the parent shrinks contentRect (Phase 0). The viewer keeps
+        // its video; the frame is never offered as an agent screenshot.
+        let driver = CaptureDriverFake(), encoder = CaptureEncoderFake()
+        let window = live
+        let source = StreamCapture(driver: driver, permission: { true }, window: { _ in window }, makeEncoder: { encoder.receive = $0; return encoder })
+        var ended = false
+        try source.start(windowID: 42, configuration: request) { event in
+            if case .contentChanged = event { ended = true }
+            if case .ended = event { ended = true }
         }
+        streamEventually { driver.queue != nil }
+        var image: CVPixelBuffer?
+        XCTAssertEqual(CVPixelBufferCreate(nil, 800, 400, kCVPixelFormatType_32BGRA, nil, &image), kCVReturnSuccess)
+        driver.queue.sync {
+            driver.output?(.complete, image, .zero, .init(displayTime: CaptureClock.now(),
+                contentRect: CGRect(x: 10, y: 0, width: 790, height: 400), contentScale: 1, scaleFactor: 2))
+        }
+        driver.queue.sync {
+            XCTAssertFalse(ended); XCTAssertEqual(driver.stopCount, 0); XCTAssertEqual(encoder.count, 1)
+        }
+        XCTAssertNil(try source.liveFrames.frame(after: 0, size: CGSize(width: 800, height: 400)))
+    }
+    func testWindowClosingReportsClosedStopsCaptureWithoutEndingViewers() throws {
+        let driver = CaptureDriverFake(), encoder = CaptureEncoderFake()
+        var info: StreamWindowInfo? = live
+        let closed = expectation(description: "closed")
+        var ended = false
+        let source = StreamCapture(driver: driver, permission: { true }, window: { _ in info }, makeEncoder: { encoder.receive = $0; return encoder })
+        try source.start(windowID: 42, configuration: request) { event in
+            if case .state(.closed) = event { closed.fulfill() }
+            if case .ended = event { ended = true }
+        }
+        streamEventually { driver.queue != nil }
+        driver.queue.async { info = nil }
+        wait(for: [closed], timeout: 3)
+        streamEventually { driver.stopCount == 1 }
+        driver.queue.sync { XCTAssertFalse(ended); XCTAssertEqual(encoder.count, 0) }
+    }
+    func testStopErrorAfterTheWindowIsGoneIsAClose() throws {
+        // Measured 2026-11-02: SCStream's stop error for a destroyed window can arrive first.
+        let driver = CaptureDriverFake(), encoder = CaptureEncoderFake()
+        var info: StreamWindowInfo? = live
+        let closed = expectation(description: "closed")
+        var ended = false
+        let source = StreamCapture(driver: driver, permission: { true }, window: { _ in info }, makeEncoder: { encoder.receive = $0; return encoder })
+        try source.start(windowID: 42, configuration: request) { event in
+            if case .state(.closed) = event { closed.fulfill() }
+            if case .ended = event { ended = true }
+        }
+        streamEventually { driver.queue != nil }
+        driver.queue.async { info = nil; driver.stopped?(NSError(domain: SCStreamErrorDomain, code: -3815)) }
+        wait(for: [closed], timeout: 3)
+        driver.queue.sync { XCTAssertFalse(ended); XCTAssertEqual(driver.stopCount, 1) }
     }
     func testServerRetriesMissingTokenAndLogsReasonOnce() throws {
         let fixture = try StreamTestFixture()
