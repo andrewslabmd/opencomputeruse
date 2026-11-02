@@ -167,6 +167,7 @@ private struct HelperRequest: Decodable {
     let id: String
     let action: String
     let preview: PreviewRequest?
+    let streamProbe: StreamProbeRequest?
     let appLaunch: AppLaunchRequest?
     let accessibilitySnapshot: AccessibilitySnapshotRequest?
     let accessibilityInteraction: AccessibilityInteractionRequest?
@@ -375,6 +376,13 @@ private final class ComputerUseHelper {
             )
         case "captureApplicationSurface":
             response = self.captureApplicationSurface(request)
+        case "streamProbe":
+            do {
+                guard let parameters = request.streamProbe else { throw StreamProbeFailure("Missing streamProbe parameters") }
+                let result = try StreamProbe.run(parameters) { try self.nativeCancellation?.check() }
+                let data = try JSONSerialization.data(withJSONObject: result, options: [.sortedKeys])
+                response = HelperResponse(id: request.id, granted: nil, success: true, stdout: String(data: data, encoding: .utf8), stderr: nil, error: nil)
+            } catch { response = self.captureResponse(id: request.id, error: error.localizedDescription) }
         case "launchApplication":
             response = self.launchApplication(request)
         case "accessibilitySnapshot":

@@ -91,7 +91,12 @@ final class HostModel: ObservableObject {
     private var ticks = 0
     private var hostStarts: [Date] = []
     private let hostError = HostErrorTail()
-    let runtime = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/Open Computer Use")
+    let runtime: URL = {
+        if let path = ProcessInfo.processInfo.environment["OCU_RUNTIME_DIR"], (path as NSString).isAbsolutePath {
+            return URL(fileURLWithPath: path, isDirectory: true)
+        }
+        return FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/Open Computer Use")
+    }()
     var binaries: URL { Bundle.main.bundleURL.appendingPathComponent("Contents/MacOS") }
     var resources: URL { Bundle.main.bundleURL.appendingPathComponent("Contents/Resources") }
     var commands: URL { runtime.appendingPathComponent("helper-commands") }
