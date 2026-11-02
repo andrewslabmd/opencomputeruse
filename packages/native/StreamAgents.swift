@@ -1,3 +1,4 @@
+import AppKit
 import CoreGraphics
 import Darwin
 import Foundation
@@ -15,15 +16,23 @@ protocol StreamWindowProvider {
 }
 struct SystemStreamWindowProvider: StreamWindowProvider {
     func window(id: UInt32, pid: Int32) -> StreamWindowInfo? {
+        Self.lookup(id: id, pid: pid)
+    }
+    static func lookup(id: UInt32, pid: Int32? = nil) -> StreamWindowInfo? {
         guard let windows = CGWindowListCopyWindowInfo(.optionIncludingWindow, id) as? [[String: Any]],
               let info = windows.first(where: {
                   ($0[kCGWindowNumber as String] as? NSNumber)?.uint32Value == id &&
-                  ($0[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value == pid
+                  (pid == nil || ($0[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value == pid)
               }), let bounds = info[kCGWindowBounds as String] as? NSDictionary,
               let rect = CGRect(dictionaryRepresentation: bounds) else { return nil }
+        let owner = (info[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value
+        let sharing = (info[kCGWindowSharingState as String] as? NSNumber)?.uint32Value
+        let state: StreamTargetState
+        if sharing == CGWindowSharingType.none.rawValue { state = .hidden_from_capture }
+        else if let owner, NSRunningApplication(processIdentifier: owner)?.isHidden == true { state = .hidden }
+        else { state = .live }
         // Off-screen does not imply minimized: windows on other Spaces may stream.
-        // Capture's later state callbacks supply minimized/hidden/no_permission.
-        return StreamWindowInfo(frame: .init(x: rect.minX, y: rect.minY, width: rect.width, height: rect.height))
+        return StreamWindowInfo(frame: .init(x: rect.minX, y: rect.minY, width: rect.width, height: rect.height), state: state)
     }
 }
 

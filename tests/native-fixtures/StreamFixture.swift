@@ -94,7 +94,7 @@ final class StreamFixture: NSObject, NSApplicationDelegate, NSMenuDelegate {
             window.orderBack(nil)
             content.animated = false
             let rgb = command["rgb"] as? [Double] ?? [0, 0.65, 0.65]
-            content.colour = NSColor(calibratedRed: rgb[0], green: rgb[1], blue: rgb[2], alpha: 1); content.needsDisplay = true
+            content.colour = NSColor(srgbRed: rgb[0], green: rgb[1], blue: rgb[2], alpha: 1); content.needsDisplay = true
         case "animate": window.orderBack(nil); content.animated = true
         case "still": window.orderBack(nil); content.animated = false; content.needsDisplay = true
         case "minimize": window.miniaturize(nil)
@@ -109,17 +109,17 @@ final class StreamFixture: NSObject, NSApplicationDelegate, NSMenuDelegate {
         case "sharingNone": window.sharingType = .none
         case "sharingReadOnly": window.sharingType = .readOnly
         case "child":
-            let w = colourWindow("Magenta child", colour: .systemPink, frame: NSRect(x: window.frame.maxX - 240, y: window.frame.midY, width: 320, height: 220))
+            let w = colourWindow("Magenta child", colour: NSColor(srgbRed: 1, green: 0, blue: 1, alpha: 1), frame: NSRect(x: window.frame.maxX - 240, y: window.frame.midY, width: 320, height: 220))
             child = w; window.addChildWindow(w, ordered: .above)
         case "closeChild": if let child { window.removeChildWindow(child); child.close(); self.child = nil }
         case "popover":
             let p = NSPopover(); p.behavior = .applicationDefined; p.animates = false
-            let vc = NSViewController(); let view = ScrollingContent(frame: NSRect(x: 0, y: 0, width: 320, height: 200)); view.colour = .systemYellow
+            let vc = NSViewController(); let view = ScrollingContent(frame: NSRect(x: 0, y: 0, width: 320, height: 200)); view.colour = NSColor(srgbRed: 1, green: 1, blue: 0, alpha: 1)
             vc.view = view; p.contentViewController = vc; p.contentSize = view.frame.size; popover = p
             p.show(relativeTo: NSRect(x: 120, y: content.bounds.midY, width: 2, height: 2), of: content, preferredEdge: .maxX)
         case "closePopover": popover?.close(); popover = nil
         case "sheet":
-            let w = colourWindow("Orange sheet", colour: .systemOrange, frame: NSRect(x: 0, y: 0, width: 440, height: 240))
+            let w = colourWindow("Orange sheet", colour: NSColor(srgbRed: 1, green: 0.5, blue: 0, alpha: 1), frame: NSRect(x: 0, y: 0, width: 440, height: 240))
             sheet = w; window.beginSheet(w)
         case "closeSheet": if let sheet { window.endSheet(sheet); sheet.close(); self.sheet = nil }
         case "context":
