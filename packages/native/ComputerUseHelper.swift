@@ -1094,10 +1094,18 @@ private final class ComputerUseHelper {
             } else {
                 var found: AXUIElement?
                 guard AXUIElementCopyElementAtPosition(application, Float(point.x), Float(point.y), &found) == .success,
-                      let found, self.element(found, belongsTo: window) else {
+                      let found else {
                     throw NativeInteractionFailure(code: "native_target_unavailable", message: "The application cannot resolve this point in the observed window. Use its exact observed element reference.")
                 }
-                hit = found
+                if self.element(found, belongsTo: window) {
+                    hit = found
+                } else if let covering = self.accessibilityWindowAncestor(of: found), self.isWindowSharingIndicator(covering) {
+                    // While the window is captured, macOS's sharing mark sits over its title-bar
+                    // buttons. Resolve the point inside the observed window, as without a stream.
+                    hit = window.element
+                } else {
+                    throw NativeInteractionFailure(code: "native_target_unavailable", message: "The application cannot resolve this point in the observed window. Use its exact observed element reference.")
+                }
             }
             var ids: [String] = []
             var current: AXUIElement? = hit
