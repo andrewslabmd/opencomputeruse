@@ -62,9 +62,9 @@ the app the way a person does, and that's what Open Computer Use is for.
   apps. Your real cursor never moves.
 - **A menu-bar icon that tells you who's in control.** While an agent is using
   an app, the icon's ripples pulse in that agent's color.
-- **Watch an agent live.** **Watch** next to an agent opens a small floating
-  window with the app it's working in, live, and its cursor, even when that
-  window is behind others. It never takes your typing or focus.
+- **Watch agents live.** Open the menu-bar panel and each working agent's row
+  shows the app it's working in, live, with its cursor, even when that window
+  is behind others.
 - **macOS shows when a window is being watched.** By default agents see apps
   through a live view of the window they work in, so macOS shows its purple
   capture mark in that window's title bar, in place of its buttons, while an
