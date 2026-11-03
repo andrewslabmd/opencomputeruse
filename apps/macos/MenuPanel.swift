@@ -70,6 +70,5 @@ struct MenuPanel: View {
         .frame(width: 340)
         .fixedSize(horizontal: false, vertical: true)
         .background(PanelVisibility { model.panelPreviews.setPanelOpen($0) })
-        .onDisappear { model.panelPreviews.setPanelOpen(false) }
     }
 }

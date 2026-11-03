@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import OCUStream
+import os
 
 @MainActor
 final class PanelPreviewController {
@@ -37,9 +38,11 @@ final class PanelPreviewController {
         update(preview)
         return preview
     }
+    private static let log = Logger(subsystem: "com.andrewslabmd.opencomputeruse", category: "panel-preview")
     func setPanelOpen(_ open: Bool) {
         guard isOpen != open else { return }
         isOpen = open
+        Self.log.info("panel \(open ? "open" : "closed", privacy: .public)")
         reconcile()
         if open { client.start(); client.list() }
         else { for preview in previews.values { preview.canvas.shutdown() } }
@@ -72,7 +75,11 @@ final class PanelPreviewController {
         if isOpen {
             for agent in agents where agent.app != nil { _ = preview(for: agent) }
         }
+        let before = subscriptions.active.count
         subscriptions.update(isOpen: isOpen, agents: ids)
+        if subscriptions.active.count != before {
+            Self.log.info("preview subscriptions \(before, privacy: .public) -> \(self.subscriptions.active.count, privacy: .public)")
+        }
         for id in Array(previews.keys) where !ids.contains(id) {
             previews.removeValue(forKey: id)?.canvas.shutdown()
         }
@@ -129,24 +136,44 @@ final class PanelPreviewController {
 }
 
 /// MenuBarExtra retains its content between presentations. Observe actual
-/// window ordering rather than relying on SwiftUI's view lifetime.
+/// window ordering rather than relying on SwiftUI's view lifetime: every signal
+/// (moved to a window, occlusion change, close, dismantle) re-reads whether the
+/// panel window is really on screen, and checks once more a moment later. A
+/// signal alone once said "closed" while the panel was showing (the first
+/// opening after launch), which ended its previews with the panel open.
 struct PanelVisibility: NSViewRepresentable {
     let changed: (Bool) -> Void
     func makeNSView(context: Context) -> Observer { let view = Observer(); view.changed = changed; return view }
     func updateNSView(_ view: Observer, context: Context) { view.changed = changed }
-    static func dismantleNSView(_ view: Observer, coordinator: ()) { view.changed?(false); view.observe(nil) }
+    static func dismantleNSView(_ view: Observer, coordinator: ()) { view.report(); view.observe(nil) }
     final class Observer: NSView {
         var changed: ((Bool) -> Void)?
         private var tokens: [NSObjectProtocol] = []
+        private weak var observed: NSWindow?
         override func viewDidMoveToWindow() { super.viewDidMoveToWindow(); observe(window) }
+        static func showing(_ window: NSWindow?) -> Bool {
+            guard let window else { return false }
+            return window.isVisible && window.occlusionState.contains(.visible)
+        }
+        func report() {
+            changed?(Self.showing(observed))
+            // Settle after the menu's open or close animation.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+                guard let self else { return }
+                self.changed?(Self.showing(self.observed))
+            }
+        }
         func observe(_ window: NSWindow?) {
             tokens.forEach(NotificationCenter.default.removeObserver); tokens = []
-            changed?(window?.isVisible == true)
+            observed = window
+            report()
             guard let window else { return }
-            tokens.append(NotificationCenter.default.addObserver(forName: NSWindow.didChangeOcclusionStateNotification,
-                object: window, queue: .main) { [weak self, weak window] _ in self?.changed?(window?.isVisible == true) })
-            tokens.append(NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification,
-                object: window, queue: .main) { [weak self] _ in self?.changed?(false) })
+            for name in [NSWindow.didChangeOcclusionStateNotification, NSWindow.didBecomeKeyNotification,
+                         NSWindow.didResignKeyNotification, NSWindow.willCloseNotification] {
+                tokens.append(NotificationCenter.default.addObserver(forName: name, object: window, queue: .main) { [weak self] _ in
+                    self?.report()
+                })
+            }
         }
         deinit { tokens.forEach(NotificationCenter.default.removeObserver) }
     }
