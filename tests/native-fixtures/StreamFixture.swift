@@ -33,7 +33,7 @@ final class StreamFixture: NSObject, NSApplicationDelegate, NSMenuDelegate {
     var lastFront: pid_t = 0
     var menuOpen = false
     var screen: NSScreen!
-    let colours: [[Double]] = [[0, 0.65, 0.65], [0.8, 0.2, 0.1], [0.1, 0.3, 0.9]]
+    var colours: [[Double]] = [[0, 0.65, 0.65], [0.8, 0.2, 0.1], [0.1, 0.3, 0.9]]
     var pressCount = 0
 
     @objc func changeColour() {
@@ -53,6 +53,8 @@ final class StreamFixture: NSObject, NSApplicationDelegate, NSMenuDelegate {
             "minimized": window?.isMiniaturized ?? false, "visible": window?.isVisible ?? false, "closed": window == nil,
             "frame": window.map { [$0.frame.minX, $0.frame.minY, $0.frame.width, $0.frame.height] } ?? [],
             "screen": [screen.frame.width, screen.frame.height],
+            "visible_screen_frame": [screen.visibleFrame.minX, screen.visibleFrame.minY, screen.visibleFrame.width, screen.visibleFrame.height],
+            "colours": colours,
             "visible_screen": [screen.visibleFrame.width, screen.visibleFrame.height],
             "animating": content.animated, "sharing": window?.sharingType.rawValue ?? 0,
             "press_count": pressCount,
@@ -112,6 +114,19 @@ final class StreamFixture: NSObject, NSApplicationDelegate, NSMenuDelegate {
             content.animated = false
             let rgb = command["rgb"] as? [Double] ?? [0, 0.65, 0.65]
             content.colour = NSColor(srgbRed: rgb[0], green: rgb[1], blue: rgb[2], alpha: 1); content.needsDisplay = true
+        case "configure":
+            guard let palette = command["colours"] as? [[Double]], !palette.isEmpty,
+                  palette.allSatisfy({ $0.count == 3 && $0.allSatisfy({ $0.isFinite && $0 >= 0 && $0 <= 1 }) }),
+                  let frame = command["frame"] as? [Double], frame.count == 4,
+                  frame.allSatisfy({ $0.isFinite }), frame[2] >= 240, frame[3] >= 160 else {
+                commandError = "Invalid palette or frame"; record(); return
+            }
+            let rect = NSRect(x: frame[0], y: frame[1], width: frame[2], height: frame[3])
+            guard screen.visibleFrame.contains(rect) else { commandError = "Frame outside visible screen"; record(); return }
+            colours = palette; pressCount = 0; content.animated = false
+            let rgb = colours[0]
+            content.colour = NSColor(srgbRed: rgb[0], green: rgb[1], blue: rgb[2], alpha: 1)
+            window.setFrame(rect, display: true); content.needsDisplay = true; window.orderBack(nil)
         case "animate": window.orderBack(nil); content.animated = true
         case "still": window.orderBack(nil); content.animated = false; content.needsDisplay = true
         case "minimize": window.miniaturize(nil)

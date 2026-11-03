@@ -112,7 +112,7 @@ try {
   }
   runtimeOwned = true;
   const decoder = join(dir, 'stream-client');
-  run('xcrun', ['swiftc', '-D', 'STREAM_NATIVE_CLIENT', '-parse-as-library', 'tests/native/StreamSocketClient.swift', '-o', decoder]);
+  run('xcrun', ['swiftc', '-D', 'STREAM_NATIVE_CLIENT', '-parse-as-library', 'scripts/native-stream-client.swift', '-o', decoder]);
   watcher = spawn(decoder, ['--watch'], { stdio: ['ignore', 'pipe', 'pipe'] }); owned.add(watcher.pid);
   watchProcess(watcher, 'watcher');
   createInterface({ input: watcher.stdout }).on('line', line => {

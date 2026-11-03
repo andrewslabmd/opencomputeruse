@@ -125,8 +125,12 @@ if args[1] == "--watch" {
         var value: [String: Any] = ["at": Date().timeIntervalSince1970, "frontmost": front?.processIdentifier ?? 0,
               "owned": bundles.contains { path.hasPrefix($0 + "/Contents/") }, "locked": locked() as Any? ?? NSNull(), "source": source]
         if let data = try? Data(contentsOf: URL(fileURLWithPath: args[3])),
-           let config = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-           let pid = config["pid"] as? Int, let window = config["window"] as? Int {
+           let config = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+          value["monitor"] = config
+          var fixtureSamples: [[String: Any]] = []
+          for item in config["fixtures"] as? [[String: Any]] ?? [config] {
+            guard let pid = item["pid"] as? Int, let window = item["window"] as? Int else { continue }
+            var sample: [String: Any] = ["pid": pid, "window": window]
             let all = (CGWindowListCopyWindowInfo(.optionAll, kCGNullWindowID) as? [[String: Any]] ?? []).filter { ($0[kCGWindowOwnerPID as String] as? NSNumber)?.intValue == pid }
             let windows = all.map { w -> [String: Any] in ["id": w[kCGWindowNumber as String] ?? 0, "title": w[kCGWindowName as String] ?? NSNull(), "bounds": w[kCGWindowBounds as String] ?? [:], "onscreen": w[kCGWindowIsOnscreen as String] ?? false] }
             let targetBounds = all.first { ($0[kCGWindowNumber as String] as? NSNumber)?.intValue == window }?[kCGWindowBounds as String] as? [String: Double]
@@ -137,12 +141,16 @@ if args[1] == "--watch" {
                       let tx = target["X"], let ty = target["Y"] else { return false }
                 return abs(width - 66) <= 4 && abs(height - 20) <= 4 && x >= tx && x <= tx + 100 && y >= ty && y <= ty + 32
             }
-            value["monitor"] = config; value["fixtureWindows"] = windows
-            value["indicatorPresent"] = !indicators.isEmpty; value["indicators"] = indicators
+            sample["fixtureWindows"] = windows
+            sample["indicatorPresent"] = !indicators.isEmpty; sample["indicators"] = indicators
             if let data = try? Data(contentsOf: URL(fileURLWithPath: args[4] + "/targets.json")),
                let targets = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] {
-                value["helperTargets"] = targets.filter { ($0["pid"] as? NSNumber)?.intValue == pid }
-            } else { value["helperTargets"] = NSNull() }
+                sample["helperTargets"] = targets.filter { ($0["pid"] as? NSNumber)?.intValue == pid }
+            } else { sample["helperTargets"] = NSNull() }
+            fixtureSamples.append(sample)
+          }
+          value["fixtures"] = fixtureSamples
+          if fixtureSamples.count == 1 { for (key, item) in fixtureSamples[0] { value[key] = item } }
         }
         emit(value)
     }
@@ -177,10 +185,10 @@ if args[1] == "--watch" {
 }
 `;
 
-export async function createNativeRun(kind) {
+export async function createNativeRun(kind, { outputGroup = 'stream-phase2' } = {}) {
   assert.ok(process.argv.includes('--interactive'), 'Native checks require --interactive authorization');
   const root = await realpath(resolve('.'));
-  const dir = join(root, 'work/stream-phase2', new Date().toISOString().replaceAll(':', '-'));
+  const dir = join(root, 'work', outputGroup, new Date().toISOString().replaceAll(':', '-'));
   await mkdir(dir, { recursive: true, mode: 0o700 });
   const runtime = '/Users/marioflores/Developer/andrewslab/opencomputeruse/work/p13';
   assert.ok(!process.env.OCU_RUNTIME_DIR || resolve(process.env.OCU_RUNTIME_DIR) === runtime, 'Only the approved isolated work/p13 runtime is allowed');
