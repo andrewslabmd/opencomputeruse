@@ -537,10 +537,15 @@ private final class ComputerUseHelper {
             return self.captureResponse(id: request.id, error: "Invalid application-surface destination")
         }
         let discovered: ApplicationSurface?
+        var sharingIndicators = Set<CGWindowID>()
         do {
             try streamServer?.checkCaptureAllowed(windowIDs: Set(preview.windowIDs ?? []), pid: processID)
             // AX inventory shares the native queue; no capture or frame wait runs there.
-            discovered = try nativeQueue.sync { try self.applicationSurface(processID: processID, requestedTitle: nil) }
+            discovered = try nativeQueue.sync {
+                let surface = try self.applicationSurface(processID: processID, requestedTitle: nil)
+                sharingIndicators = Set(surface?.accessibilityWindows.filter { self.isWindowSharingIndicator($0.element) }.map(\.windowID) ?? [])
+                return surface
+            }
         }
         catch { return self.captureResponse(id: request.id, error: captureError(error)) }
         guard let discoveredSurface = discovered else {
@@ -580,7 +585,10 @@ private final class ComputerUseHelper {
 
         let live: LiveFrame?
         do {
-            let proven = requestedWindowIDs.isEmpty ? Set(discoveredWindows.map(\.windowID)) : requestedWindowIDs
+            // The window-sharing indicator is drawn into the streamed window's own frames
+            // (a child window), so it doesn't stop the live frame from covering the set.
+            let proven = (requestedWindowIDs.isEmpty ? Set(discoveredWindows.map(\.windowID)) : requestedWindowIDs)
+                .subtracting(sharingIndicators)
             try streamServer?.checkCaptureAllowed(windowIDs: Set(windows.map(\.windowID)), pid: processID)
             live = try streamServer?.liveFrame(windowIDs: proven, pid: processID, after: arrival, size: surfaceFrame.size)
         } catch { return self.captureResponse(id: request.id, error: captureError(error)) }
@@ -1691,6 +1699,15 @@ private final class ComputerUseHelper {
     }
 
     /// The name the snapshot gives a node, read from a live element.
+    /// AppKit's window-sharing indicator, which macOS adds to an app while one of its windows
+    /// is captured: an AXDialog whose only child is the AXButton "WindowSharingSessionButton"
+    /// (measured on macOS 27.0.1; the engine applies the same rule to its snapshot).
+    private func isWindowSharingIndicator(_ window: AXUIElement) -> Bool {
+        guard self.stringAttribute(window, kAXSubroleAttribute as CFString) == "AXDialog" else { return false }
+        let children = self.elementsAttribute(window, kAXChildrenAttribute as CFString)
+        guard children.count == 1, self.stringAttribute(children[0], kAXRoleAttribute as CFString) == "AXButton" else { return false }
+        return self.liveName(children[0], role: "AXButton") == "WindowSharingSessionButton"
+    }
     private func liveName(_ element: AXUIElement, role: String?) -> String? {
         let editable = role.map { NativeInteractionExecutor.editable.contains($0) } == true ||
             self.stringAttribute(element, kAXSubroleAttribute as CFString) == "AXSearchField"

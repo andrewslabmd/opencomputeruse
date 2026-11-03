@@ -145,6 +145,26 @@ function publishTarget(snapshot, mainWindowID = snapshot.mainWindowID) {
   } });
 }
 
+// macOS adds a small window to an app while one of its windows is captured: AppKit's
+// window-sharing indicator (the purple mark in the title bar), an AXDialog whose only
+// child is the AXButton "WindowSharingSessionButton" (measured on macOS 27.0.1). It is
+// never the window to show: choosing it moved the live stream onto it, the mark went
+// away with the stream, and the stream flapped.
+function isWindowSharingIndicator(window) {
+  const children = window?.tree?.children ?? [];
+  return window?.tree?.subrole === "AXDialog" && children.length === 1 &&
+    children[0].role === "AXButton" && children[0].name === "WindowSharingSessionButton";
+}
+// The window to show: the scoped window, else the frontmost standard window, else the
+// frontmost AXWindow, else the frontmost window; never the sharing indicator.
+function mainWindowID(windows, anchorWindowID) {
+  if (windows.length === 0) return null;
+  if (anchorWindowID != null) return anchorWindowID;
+  const candidates = windows.filter(w => !isWindowSharingIndicator(w));
+  return (candidates.find(w => w.tree.role === "AXWindow" && w.tree.subrole === "AXStandardWindow") ??
+    candidates.find(w => w.tree.role === "AXWindow") ?? candidates[0] ?? windows[0]).windowID ?? null;
+}
+
 async function captureAirpointObservation(appTarget, windowTitle, windowID, expectedSnapshot) {
   try {
     const response = await requestComputerUseHelper(
@@ -174,9 +194,7 @@ async function captureAirpointObservation(appTarget, windowTitle, windowID, expe
       ...normalized,
       appName: typeof raw.app.name === "string" && raw.app.name.length > 0 ? raw.app.name : null,
       bundleID: typeof raw.app.bundleIdentifier === "string" && raw.app.bundleIdentifier.length > 0 ? raw.app.bundleIdentifier : null,
-      mainWindowID: normalized.internalWindows.length === 0 ? null : raw.surface?.anchorWindowID ??
-        normalized.internalWindows.find(w => w.tree.role === "AXWindow")?.windowID ??
-        normalized.internalWindows[0]?.windowID ?? null,
+      mainWindowID: mainWindowID(normalized.internalWindows, raw.surface?.anchorWindowID),
       actionWindowID: normalized.internalWindows.length > 0 ? expectedSnapshot?.actionWindowID : undefined,
       appTarget: `PID:${normalized.pid}`,
       requestedAppTarget: appTarget,

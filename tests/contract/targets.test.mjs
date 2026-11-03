@@ -157,8 +157,11 @@ async function engineFixture(t, raw) {
   t.after(async () => { await broker.stop(); running = false; await worker; await rm(directory, { recursive: true, force: true }); if (failure) throw failure; });
   return { broker, events, requests, raw };
 }
-const window = (windowID, zIndex, role = 'AXWindow') => ({ windowID, zIndex, frame: { x: 0, y: 0, w: 100, h: 100 },
-  tree: { id: `w${windowID}`, role, frame: { x: 0, y: 0, w: 100, h: 100 }, children: [] } });
+const window = (windowID, zIndex, role = 'AXWindow', subrole) => ({ windowID, zIndex, frame: { x: 0, y: 0, w: 100, h: 100 },
+  tree: { id: `w${windowID}`, role, ...(subrole ? { subrole } : {}), frame: { x: 0, y: 0, w: 100, h: 100 }, children: [] } });
+const indicator = (windowID, zIndex) => ({ windowID, zIndex, frame: { x: 6, y: 6, w: 66, h: 20 },
+  tree: { id: `w${windowID}`, role: 'AXWindow', subrole: 'AXDialog', frame: { x: 6, y: 6, w: 66, h: 20 },
+    children: [{ id: `b${windowID}`, role: 'AXButton', name: 'WindowSharingSessionButton', frame: { x: 5, y: 5, w: 68, h: 22 } }] } });
 const snapshot = windows => ({ app: { pid: 101, name: 'Fixture', bundleIdentifier: 'test.fixture' }, capturedAt: 1,
   nodeCount: windows.length, surface: { frame: { x: 0, y: 0, w: 100, h: 100 }, windows, captureWindowIDs: windows.map(w => w.windowID) } });
 for (const [name, windows, anchor, expected] of [
@@ -166,6 +169,9 @@ for (const [name, windows, anchor, expected] of [
   ['lowest zIndex AXWindow wins over earlier non-window roots', [window(7, 0, 'AXMenu'), window(9, 2), window(11, 1)], undefined, 11],
   ['without AXWindow roots the lowest zIndex wins', [window(7, 2, 'AXMenu'), window(9, 0, 'AXGroup')], undefined, 9],
   ['without windows main is null', [], undefined, null],
+  // macOS's window-sharing indicator appears in front while the window is streamed.
+  ['the window-sharing indicator is never the main window', [indicator(9, 0), window(7, 1)], undefined, 7],
+  ['a standard window wins over a frontmost dialog', [window(9, 0, 'AXWindow', 'AXDialog'), window(7, 1, 'AXWindow', 'AXStandardWindow')], undefined, 7],
 ]) {
   test(`engine observation target: ${name}`, async t => {
     const raw = snapshot(windows);
