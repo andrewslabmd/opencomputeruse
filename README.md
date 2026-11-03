@@ -203,9 +203,16 @@ Please report it privately, as described in [SECURITY.md](SECURITY.md).
 
 ## Good to know
 
-- **It's early.** This is version 0.1. It's tested on Apple silicon with
+- **It's early.** This is version 0.2. It's tested on Apple silicon with
   a current version of macOS 15 or later; other setups may work but haven't
   been tested yet.
+- **macOS may ask again about Screen Recording.** Because Open Computer Use
+  captures app windows itself rather than through the system window picker,
+  macOS can ask you to confirm: "Open Computer Use is requesting to bypass the
+  system private window picker and directly access your screen and audio."
+  Choose **Allow** to keep agents' screenshots and the live view working.
+  Open Computer Use only ever captures the window an agent is working in, and
+  never audio.
 - **Some apps are harder than others.** Most Mac apps describe their controls
   to macOS, and that's what agents work from. Apps that don't (some games and
   custom-drawn interfaces) can only be operated with clicks and keystrokes,
