@@ -27,7 +27,7 @@ final class StreamTestSource: StreamFrameSource, LiveFrameSource {
     func configure(_ configuration: StreamFrameConfiguration) { lock.withLock { configurations.append(configuration) } }
     func requestKeyframe() { lock.withLock { wanted = true; requests += 1 } }
     func stop() { liveFrames.stop(); lock.withLock { stops += 1; callback = nil } }
-    func emit(pts: Double, size: Int = 7, keyframe: Bool? = nil) {
+    func emit(pts: Double, size: Int = 7, keyframe: Bool? = nil, codec: StreamCodec = .h264) {
         let (receive, key): (((StreamFrameEvent) -> Void)?, Bool) = lock.withLock {
             let key = keyframe ?? wanted
             if key { wanted = false }
@@ -36,7 +36,7 @@ final class StreamTestSource: StreamFrameSource, LiveFrameSource {
         var data = Data([0,0,0,3,0x65,1,2])
         if size > data.count { data.append(Data(repeating: 1, count: size - data.count)) }
         receive?(.sample(.init(pts: pts, keyframe: key,
-            format: key ? .init(sps: [Data([0x67])], pps: [Data([0x68])]) : nil, data: data)))
+            format: key ? .init(sps: [Data([0x67])], pps: [Data([0x68])]) : nil, data: data, codec: codec)))
     }
     func event(_ event: StreamFrameEvent) { let receive = lock.withLock { callback }; receive?(event) }
 }
@@ -44,7 +44,8 @@ final class StreamTestFactory: StreamFrameSourceFactory {
     private let lock = NSLock()
     private var created: [StreamTestSource] = []
     var sources: [StreamTestSource] { lock.withLock { created } }
-    func supports(_ codec: StreamCodec) -> Bool { codec == .h264 }
+    var hevcSupported = false
+    func supports(_ codec: StreamCodec) -> Bool { codec == .h264 || hevcSupported }
     func makeSource() -> StreamFrameSource {
         let source = StreamTestSource(); lock.withLock { created.append(source) }; return source
     }
@@ -105,11 +106,11 @@ final class StreamTestPeer {
         }
         throw StreamTestTimeout()
     }
-    func hello(token: String = StreamTestFixture.token, version: Int = 1) throws {
-        try send(.hello(.init(version: version, token: token, client: "Test viewer")))
+    func hello(token: String = StreamTestFixture.token, version: Int = 1, client: String = "Test viewer") throws {
+        try send(.hello(.init(version: version, token: token, client: client)))
     }
-    func authenticate() throws {
-        try hello()
+    func authenticate(client: String = "Test viewer") throws {
+        try hello(client: client)
         XCTAssertEqual(try next(), .control(.hello(.init())))
     }
     func subscribe(agent: String = "a", fps: Int = 15) throws {

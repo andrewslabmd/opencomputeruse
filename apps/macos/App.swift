@@ -2,6 +2,7 @@ import SwiftUI
 import AppKit
 import Darwin
 import ServiceManagement
+import OCUStream
 
 enum CaptureMode: String, CaseIterable, Identifiable {
     case live, screenshots
@@ -30,6 +31,7 @@ struct Agent: Identifiable, Equatable {
     let busy: Bool
     /// Estimated tokens its calls have added to its context and written, this connection.
     var tokens = 0
+    var watchers: [String] = []
     var color: Color { slot.map { Color(nsColor: AgentCursorView.palette[$0 % AgentCursorView.palette.count]) } ?? .secondary }
     var activity: String {
         guard let app else { return "Connected" }
@@ -96,7 +98,18 @@ final class HostModel: ObservableObject {
         didSet { UserDefaults.standard.set(captureMode.rawValue, forKey: "captureMode"); sendCaptureMode() }
     }
     lazy var overlay = CursorOverlay(runtime: runtime)
-    lazy var pipController = PiPController(runtime: runtime)
+    lazy var pipController = PiPController(runtime: runtime) { [weak self] list in
+        self?.updateWatchers(list)
+    }
+    private var streamAgents: [StreamAgent] = []
+    private func updateWatchers(_ list: [StreamAgent]) {
+        streamAgents = list
+        let watchers = Dictionary(uniqueKeysWithValues: list.map { ($0.agent, $0.watchers) })
+        let next = agents.map { agent -> Agent in
+            var result = agent; result.watchers = watchers[agent.id] ?? []; return result
+        }
+        if next != agents { agents = next }
+    }
     /// The menu-bar icon: idle, or animated in the working agents' colors.
     @Published var menuBarImage = MenuBarIcon.make()
     private var workingSlots: [Int] = []
@@ -163,6 +176,7 @@ final class HostModel: ObservableObject {
             hostStarts = []; try launchHost()
             timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in Task { @MainActor in self?.refresh() } }
             overlay.enabled = showCursors; overlay.start()
+            pipController.start()
             refreshSetup()
         } catch { health = .unavailable; detail = error.localizedDescription; helper?.terminate() }
     }
@@ -219,7 +233,8 @@ final class HostModel: ObservableObject {
             let workflow = workflows[id]
             let usage = client["usage"] as? [String: Any]
             let tokens = ["input_tokens", "output_tokens"].reduce(0) { $0 + ((usage?[$1] as? NSNumber)?.intValue ?? 0) }
-            return Agent(id: id, name: name, app: workflow?.app, appPID: workflow?.pid, slot: workflow?.slot, busy: workflow?.busy ?? false, tokens: tokens)
+            return Agent(id: id, name: name, app: workflow?.app, appPID: workflow?.pid, slot: workflow?.slot, busy: workflow?.busy ?? false, tokens: tokens,
+                         watchers: streamAgents.first { $0.agent == id }?.watchers ?? [])
         }
         if next != agents { agents = next }
         let connected = Set((state["clients"] as? [[String: Any]] ?? []).compactMap { $0["id"] as? String })

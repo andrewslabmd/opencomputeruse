@@ -15,6 +15,7 @@ final class PiPController {
     }
     private let runtime: URL
     private let defaults: UserDefaults
+    private let agentsChanged: ([StreamAgent]) -> Void
     private var viewers: [String: Viewer] = [:]
     private var order: [String] = []
     private var stopped = false
@@ -24,7 +25,10 @@ final class PiPController {
         MainActor.assumeIsolated { self?.receive(event) }
     }
 
-    init(runtime: URL, defaults: UserDefaults = .standard) { self.runtime = runtime; self.defaults = defaults }
+    init(runtime: URL, defaults: UserDefaults = .standard, agentsChanged: @escaping ([StreamAgent]) -> Void = { _ in }) {
+        self.runtime = runtime; self.defaults = defaults; self.agentsChanged = agentsChanged
+    }
+    func start() { client.start() }
 
     func watch(_ agent: Agent) {
         if let viewer = viewers[agent.id] { viewer.panel.orderFrontRegardless(); return }
@@ -74,7 +78,6 @@ final class PiPController {
     private func closed(_ agent: String) {
         viewers[agent] = nil; order.removeAll { $0 == agent }
         client.unsubscribe(agent: agent)
-        if viewers.isEmpty { client.stop() }
     }
     private func update(_ viewer: Viewer) {
         if stopped { viewer.panel.canvas.state = .stopped; return }
@@ -91,8 +94,10 @@ final class PiPController {
         case .connected:
             for viewer in viewers.values { viewer.panel.canvas.resetVideo() }
         case .disconnected:
+            agentsChanged([])
             for viewer in viewers.values { viewer.end = .stopped; update(viewer) }
         case .failure:
+            agentsChanged([])
             for viewer in viewers.values { viewer.end = .stopped; update(viewer) }
         case .message(let message):
             switch message {
@@ -109,6 +114,7 @@ final class PiPController {
                 restack()
             case .control(.cursor(let cursor)): viewers[cursor.agent]?.panel.canvas.setCursor(cursor)
             case .control(.agents(let list)):
+                agentsChanged(list.agents)
                 for agent in list.agents {
                     guard let viewer = viewers[agent.agent] else { continue }
                     viewer.panel.canvas.setIdentity(name: agent.name, slot: agent.color_slot)

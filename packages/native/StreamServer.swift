@@ -8,6 +8,7 @@ struct StreamEncodedSample {
     var keyframe: Bool
     var format: StreamVideoFormat?
     var data: Data // AVCC, never Annex B
+    var codec: StreamCodec = .h264
 }
 enum StreamFrameEvent {
     case sample(StreamEncodedSample)
@@ -15,12 +16,14 @@ enum StreamFrameEvent {
     case ended(StreamEndReason)
     case contentChanged // Internal only; the socket still ends with reason error.
 }
+struct StreamEncodingConfiguration: Equatable {
+    var maxLongEdge: Int?
+}
 struct StreamFrameConfiguration: Equatable {
     var maxFPS: Int
     var maxLongEdge: Int?
-    var codec: StreamCodec
-    var encode: Bool = true
-    var encoderMaxLongEdge: Int? = nil
+    /// Empty while only the live screenshot buffer needs capture.
+    var encoders: [StreamCodec: StreamEncodingConfiguration] = [:]
 }
 enum StreamSourceError: Error { case noPermission, codecUnsupported }
 
@@ -51,11 +54,13 @@ final class StreamServer {
     static let helloTimeout: TimeInterval = 5
     static let controlQueueLimit = 256
     static let videoQueueLimit = 3
+    // Count user-visible characters (extended grapheme clusters), never window metadata.
+    static let clientNameLimit = 64
     static func allowsPeer(uid: uid_t, serverUID: uid_t = getuid()) -> Bool { uid == serverUID }
     static func acceptsSocket(mode: mode_t, uid: uid_t, serverUID: uid_t = getuid()) -> Bool {
         mode & S_IFMT == S_IFSOCK && uid == serverUID
     }
-    private struct SessionKey: Hashable { var window: UInt32; var codec: StreamCodec }
+    private struct SessionKey: Hashable { var window: UInt32 }
     private final class Session {
         let id = UUID()
         let source: StreamFrameSource
@@ -80,6 +85,9 @@ final class StreamServer {
     }
     private final class Client {
         let fd: Int32
+        /// The menu-bar app's own connection (its Watch window), found by the peer's process,
+        /// never by the name it gives: any local client may call itself "Open Computer Use".
+        var isOwner = false
         let id = UUID()
         var decoder = StreamDecoder()
         var read: DispatchSourceRead?
@@ -102,6 +110,7 @@ final class StreamServer {
     private let permission: () -> Bool
     private let authenticationTimeout: TimeInterval
     private let captureMode: CaptureModeStore?
+    private let ownerPID: pid_t?
     private struct Suppression {
         var pid: Int32
         var window: UInt32
@@ -121,8 +130,10 @@ final class StreamServer {
     init(commandDirectory: URL, factory: StreamFrameSourceFactory,
          windows: StreamWindowProvider = SystemStreamWindowProvider(),
          permission: @escaping () -> Bool = { CGPreflightScreenCaptureAccess() },
-         helloTimeout: TimeInterval = StreamServer.helloTimeout, captureMode: CaptureModeStore? = nil) {
+         helloTimeout: TimeInterval = StreamServer.helloTimeout, captureMode: CaptureModeStore? = nil,
+         ownerPID: pid_t? = nil) {
         agents = StreamAgents(commandDirectory: commandDirectory, windows: windows)
+        self.ownerPID = ownerPID
         self.captureMode = captureMode
         self.factory = factory; self.permission = permission; authenticationTimeout = helloTimeout
         queue.setSpecific(key: queueKey, value: true)
@@ -134,7 +145,7 @@ final class StreamServer {
         let stopped = suppressed.values.contains { $0.userStopped && $0.pid == pid && windowIDs.contains($0.window) }
         let stopping = snapshot.targets.values.contains { target in
             guard target.pid == pid, windowIDs.contains(target.window_id),
-                  let source = sessions[.init(window: target.window_id, codec: .h264)]?.source as? LiveFrameSource else { return false }
+                  let source = sessions[.init(window: target.window_id)]?.source as? LiveFrameSource else { return false }
             return source.liveFrames.captureStoppedByUser
         }
         if stopped || stopping { throw LiveCaptureError.capture_stopped_by_user }
@@ -150,7 +161,7 @@ final class StreamServer {
                   snapshot.targets.values.contains(where: {
                       $0.pid == pid && $0.window_id == window && $0.state == .live
                   }) else { return nil }
-            return (sessions[.init(window: window, codec: .h264)]?.source as? LiveFrameSource)?.liveFrames
+            return (sessions[.init(window: window)]?.source as? LiveFrameSource)?.liveFrames
         }
         // Never hold the server queue while awaiting the next sample.
         let frame = try buffer?.frame(after: arrival, size: size)
@@ -159,7 +170,7 @@ final class StreamServer {
             guard captureMode?.mode == .live, !snapshot.paused,
                   snapshot.targets.values.contains(where: { $0.pid == pid && windowIDs.contains($0.window_id) && $0.state == .live }),
                   let window = windowIDs.first,
-                  let current = sessions[.init(window: window, codec: .h264)]?.source as? LiveFrameSource,
+                  let current = sessions[.init(window: window)]?.source as? LiveFrameSource,
                   current.liveFrames === buffer else { return nil }
             return frame
         }
@@ -245,6 +256,8 @@ final class StreamServer {
             guard getpeereid(fd, &uid, &gid) == 0, Self.allowsPeer(uid: uid) else { Darwin.close(fd); continue }
             do { try Self.prepare(fd) } catch { Darwin.close(fd); continue }
             let client = Client(fd: fd); clients[client.id] = client
+            var peer: pid_t = 0, length = socklen_t(MemoryLayout<pid_t>.size)
+            client.isOwner = ownerPID != nil && getsockopt(fd, SOL_LOCAL, LOCAL_PEERPID, &peer, &length) == 0 && peer == ownerPID
             let read = DispatchSource.makeReadSource(fileDescriptor: fd, queue: queue)
             read.setEventHandler { [weak self, weak client] in if let client { self?.read(client) } }
             read.setCancelHandler { Darwin.close(fd) }
@@ -283,7 +296,7 @@ final class StreamServer {
             guard case .hello(let hello) = control, let provided = hello.token, let name = hello.client else { disconnect(client); return }
             guard constantTimeEqual(provided, token) else { refuseAndClose(client, code: .unauthorized); return }
             guard hello.version == StreamFraming.version else { refuseAndClose(client, code: .unsupported_version); return }
-            client.authenticated = true; client.name = name; client.deadline?.cancel(); client.deadline = nil
+            client.authenticated = true; client.name = String(name.prefix(Self.clientNameLimit)); client.deadline?.cancel(); client.deadline = nil
             send(.hello(.init()), to: client); return
         }
         refresh()
@@ -317,7 +330,7 @@ final class StreamServer {
         guard factory.supports(request.codec) else { refuse(.codec_unsupported); return }
         guard (1...30).contains(request.max_fps), request.max_long_edge.map({ $0 > 0 }) ?? true else { disconnect(client); return }
         if client.subscriptions[request.agent] != nil { end(request.agent, client: client, reason: .unsubscribed) }
-        let key = SessionKey(window: target.window_id, codec: request.codec)
+        let key = SessionKey(window: target.window_id)
         // Opening a viewer explicitly permits capture again, including after userStopped.
         suppressed = suppressed.filter { $0.value.window != key.window }
         let sub = Subscription(request: request, key: key)
@@ -337,15 +350,19 @@ final class StreamServer {
         guard captureMode?.mode == .live, !snapshot.paused, permission() else { return [] }
         return Set(snapshot.targets.values.filter {
             $0.state != .closed && $0.state != .no_permission && suppressed[$0.agent] == nil
-        }.map { SessionKey(window: $0.window_id, codec: .h264) })
+        }.map { SessionKey(window: $0.window_id) })
     }
     private func configuration(for key: SessionKey) -> StreamFrameConfiguration {
         let requests = clients.values.flatMap { $0.subscriptions.values }.filter { $0.key == key }.map(\.request)
         let live = agentKeys().contains(key)
         let viewerEdge = requests.contains(where: { $0.max_long_edge == nil }) ? nil : requests.compactMap(\.max_long_edge).max()
+        let encoders = Dictionary(grouping: requests, by: \.codec).mapValues { subscriptions in
+            StreamEncodingConfiguration(maxLongEdge: subscriptions.contains { $0.max_long_edge == nil }
+                ? nil : subscriptions.compactMap(\.max_long_edge).max())
+        }
         return .init(maxFPS: max(live ? 15 : 0, requests.map(\.max_fps).max() ?? 0),
                      maxLongEdge: live ? nil : viewerEdge,
-                     codec: key.codec, encode: !requests.isEmpty, encoderMaxLongEdge: live ? viewerEdge : nil)
+                     encoders: encoders)
     }
     private func ensureSession(_ key: SessionKey) throws {
         let config = configuration(for: key)
@@ -402,7 +419,7 @@ final class StreamServer {
                 guard let target = snapshot.targets[agent] else { end(agent, client: client, reason: .released); continue }
                 if target.window_id != sub.key.window || target.pid != previous.targets[agent]?.pid {
                     discardVideo(agent, client: client)
-                    sub.key = .init(window: target.window_id, codec: sub.request.codec)
+                    sub.key = .init(window: target.window_id)
                     sub.waitingForKeyframe = true; sub.draining = false
                     do { try ensureSession(sub.key) } catch { end(agent, client: client, reason: .error); continue }
                     send(.target(effectiveTarget(target, key: sub.key)), to: client)
@@ -420,6 +437,9 @@ final class StreamServer {
     private func publishAgents(_ client: Client, force: Bool = false) {
         let list = snapshot.agents.map { agent -> StreamAgent in
             var result = agent
+            result.watchers = Array(Set(clients.values.compactMap { watcher in
+                watcher.authenticated && !watcher.closing && !watcher.isOwner && watcher.subscriptions[agent.agent] != nil ? watcher.name : nil
+            })).sorted()
             if let target = snapshot.targets[agent.agent],
                let state = sessions.first(where: { $0.key.window == target.window_id })?.value.state { result.state = state }
             return result
@@ -433,7 +453,7 @@ final class StreamServer {
         case .sample(let sample):
             if let state = sessions[key]?.state, state != .live && state != .idle { return }
             for client in Array(clients.values) {
-                for (agent, sub) in client.subscriptions where sub.key == key {
+                for (agent, sub) in client.subscriptions where sub.key == key && sub.request.codec == sample.codec {
                     guard !sub.draining, !sub.waitingForKeyframe || sample.keyframe else { continue }
                     // Joining/resuming decoders require parameter sets with their IDR.
                     guard !sample.keyframe || sample.format != nil else { continue }
@@ -446,7 +466,7 @@ final class StreamServer {
                     }
                     sub.waitingForKeyframe = false
                     let video = StreamVideo(header: .init(agent: agent, pts: sample.pts, keyframe: sample.keyframe,
-                        codec: key.codec, format: sample.keyframe ? sample.format : nil), data: sample.data)
+                        codec: sample.codec, format: sample.keyframe ? sample.format : nil), data: sample.data)
                     enqueue(.video(video), client: client, agent: agent, video: true)
                 }
             }

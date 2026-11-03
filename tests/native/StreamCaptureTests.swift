@@ -41,7 +41,42 @@ private final class CaptureEncoderFake: StreamFrameEncoder {
 
 final class StreamCaptureTests: XCTestCase {
     private let live = StreamWindowInfo(frame: .init(x: 0, y: 0, width: 800, height: 400))
-    private let request = StreamFrameConfiguration(maxFPS: 15, maxLongEdge: nil, codec: .h264)
+    private let request = StreamFrameConfiguration(maxFPS: 15, maxLongEdge: nil, encoders: [.h264: .init(maxLongEdge: nil)])
+    func testOneCaptureFeedsBothEncodersAndKeepsOneFullResolutionLiveFrame() throws {
+        let driver = CaptureDriverFake()
+        let h264 = CaptureEncoderFake(), hevc = CaptureEncoderFake()
+        var made: [StreamCodec] = []
+        let source = StreamCapture(driver: driver, permission: { true }, window: { _ in self.live }, makeEncoder: { codec, receive in
+            made.append(codec)
+            let encoder = codec == .hevc ? hevc : h264
+            encoder.receive = receive; return encoder
+        })
+        var config = request
+        config.encoders = [.h264: .init(maxLongEdge: nil), .hevc: .init(maxLongEdge: 400)]
+        try source.start(windowID: 42, configuration: config) { _ in }
+        streamEventually { driver.queue != nil }
+        var image: CVPixelBuffer?
+        XCTAssertEqual(CVPixelBufferCreate(nil, 800, 400, kCVPixelFormatType_32BGRA, nil, &image), kCVReturnSuccess)
+        let arrival = CaptureClock.now()
+        driver.queue.sync {
+            driver.output?(.complete, image, .zero, .init(displayTime: CaptureClock.now(),
+                contentRect: CGRect(x: 0, y: 0, width: 800, height: 400), contentScale: 1, scaleFactor: 2))
+            XCTAssertEqual(Set(made), Set([.h264, .hevc]))
+            XCTAssertEqual(h264.count, 1); XCTAssertEqual(hevc.count, 1)
+            XCTAssertEqual(h264.lastSize, CGSize(width: 800, height: 400))
+            XCTAssertEqual(hevc.lastSize, CGSize(width: 400, height: 200))
+        }
+        XCTAssertTrue(try source.liveFrames.frame(after: arrival, size: CGSize(width: 800, height: 400))?.image === image)
+        config.encoders = [.h264: .init(maxLongEdge: nil)]
+        source.configure(config)
+        driver.queue.sync {
+            XCTAssertEqual(hevc.stopCount, 1); XCTAssertEqual(h264.stopCount, 0)
+            XCTAssertEqual(driver.stopCount, 0)
+            driver.output?(.complete, image, CMTime(value: 1, timescale: 15), nil)
+            XCTAssertEqual(h264.count, 2); XCTAssertEqual(hevc.count, 1)
+        }
+        source.stop(); driver.queue.sync { XCTAssertEqual(driver.stopCount, 1) }
+    }
     func testMeasuredStateMapping() {
         XCTAssertEqual(StreamCapture.state(status: .suspended, window: nil, previous: .live), .closed)
         var info = live; info.state = .hidden
@@ -63,7 +98,7 @@ final class StreamCaptureTests: XCTestCase {
         XCTAssertEqual(config.minimumFrameInterval, CMTime(value: 1, timescale: 15))
         XCTAssertTrue(config.includeChildWindows); XCTAssertTrue(config.scalesToFit); XCTAssertTrue(config.ignoreShadowsSingleWindow)
         XCTAssertFalse(config.showsCursor); XCTAssertFalse(config.capturesAudio); XCTAssertEqual(config.queueDepth, 3)
-        XCTAssertFalse(SystemStreamFrameSourceFactory().supports(.hevc))
+        XCTAssertTrue(SystemStreamFrameSourceFactory().supports(.h264))
     }
     func testNoPermissionNeverStartsCapture() {
         let driver = CaptureDriverFake()
@@ -91,7 +126,7 @@ final class StreamCaptureTests: XCTestCase {
             source.considerResize(CGSize(width: 1200, height: 600), at: 0.600)
             XCTAssertEqual(driver.updates.last?.0, .init(width: 1200, height: 600))
         }
-        source.configure(.init(maxFPS: 30, maxLongEdge: 600, codec: .h264))
+        source.configure(.init(maxFPS: 30, maxLongEdge: 600, encoders: [.h264: .init(maxLongEdge: nil)]))
         driver.queue.sync {
             XCTAssertEqual(driver.updates.last?.0, .init(width: 600, height: 300))
             XCTAssertEqual(driver.updates.last?.1.maxFPS, 30)
@@ -106,7 +141,7 @@ final class StreamCaptureTests: XCTestCase {
         let driver = CaptureDriverFake(), encoder = CaptureEncoderFake()
         let gotFrame = expectation(description: "encoded frame"), receiverEntered = DispatchSemaphore(value: 0)
         let releaseReceiver = DispatchSemaphore(value: 0)
-        let source = StreamCapture(driver: driver, permission: { true }, window: { _ in self.live }, makeEncoder: { receive in encoder.receive = receive; return encoder })
+        let source = StreamCapture(driver: driver, permission: { true }, window: { _ in self.live }, makeEncoder: { _, receive in encoder.receive = receive; return encoder })
         try source.start(windowID: 42, configuration: request) { event in
             if case .sample(let sample) = event {
                 XCTAssertTrue(sample.keyframe); XCTAssertNotNil(sample.format)
@@ -130,7 +165,7 @@ final class StreamCaptureTests: XCTestCase {
         let driver = CaptureDriverFake(), encoder = CaptureEncoderFake()
         var hidden = live; hidden.state = .hidden_from_capture
         let changed = expectation(description: "hidden")
-        let source = StreamCapture(driver: driver, permission: { true }, window: { _ in hidden }, makeEncoder: { encoder.receive = $0; return encoder })
+        let source = StreamCapture(driver: driver, permission: { true }, window: { _ in hidden }, makeEncoder: { _, receive in encoder.receive = receive; return encoder })
         try source.start(windowID: 42, configuration: request) { if case .state(.hidden_from_capture) = $0 { changed.fulfill() } }
         streamEventually { driver.queue != nil }
         var image: CVPixelBuffer?
@@ -158,8 +193,8 @@ final class StreamCaptureTests: XCTestCase {
     func testEncoderExistsOnlyWhileSubscribed() throws {
         let driver = CaptureDriverFake(), encoder = CaptureEncoderFake()
         var created = 0
-        var agentOnly = request; agentOnly.encode = false
-        let source = StreamCapture(driver: driver, permission: { true }, window: { _ in self.live }, makeEncoder: { receive in
+        var agentOnly = request; agentOnly.encoders = [:]
+        let source = StreamCapture(driver: driver, permission: { true }, window: { _ in self.live }, makeEncoder: { _, receive in
             created += 1; encoder.receive = receive; return encoder
         })
         try source.start(windowID: 42, configuration: agentOnly) { _ in }
@@ -176,8 +211,8 @@ final class StreamCaptureTests: XCTestCase {
     }
     func testViewerSizeRequestOnlyScalesEncoderInputWhileLiveFrameStaysFullSize() throws {
         let driver = CaptureDriverFake(), encoder = CaptureEncoderFake()
-        let source = StreamCapture(driver: driver, permission: { true }, window: { _ in self.live }, makeEncoder: { encoder.receive = $0; return encoder })
-        var config = request; config.encoderMaxLongEdge = 400
+        let source = StreamCapture(driver: driver, permission: { true }, window: { _ in self.live }, makeEncoder: { _, receive in encoder.receive = receive; return encoder })
+        var config = request; config.encoders[.h264] = .init(maxLongEdge: 400)
         try source.start(windowID: 42, configuration: config) { _ in }
         streamEventually { driver.queue != nil }
         var image: CVPixelBuffer?
@@ -195,7 +230,7 @@ final class StreamCaptureTests: XCTestCase {
         let driver = CaptureDriverFake()
         var info = live
         let source = StreamCapture(driver: driver, permission: { true }, window: { _ in info })
-        var config = request; config.encode = false
+        var config = request; config.encoders = [:]
         try source.start(windowID: 42, configuration: config) { if case .contentChanged = $0 { XCTFail("resize is not replacement") } }
         streamEventually { driver.queue != nil }
         var old: CVPixelBuffer?, resized: CVPixelBuffer?
@@ -221,7 +256,7 @@ final class StreamCaptureTests: XCTestCase {
         // its video; the frame is never offered as an agent screenshot.
         let driver = CaptureDriverFake(), encoder = CaptureEncoderFake()
         let window = live
-        let source = StreamCapture(driver: driver, permission: { true }, window: { _ in window }, makeEncoder: { encoder.receive = $0; return encoder })
+        let source = StreamCapture(driver: driver, permission: { true }, window: { _ in window }, makeEncoder: { _, receive in encoder.receive = receive; return encoder })
         var ended = false
         try source.start(windowID: 42, configuration: request) { event in
             if case .contentChanged = event { ended = true }
@@ -244,7 +279,7 @@ final class StreamCaptureTests: XCTestCase {
         var info: StreamWindowInfo? = live
         let closed = expectation(description: "closed")
         var ended = false
-        let source = StreamCapture(driver: driver, permission: { true }, window: { _ in info }, makeEncoder: { encoder.receive = $0; return encoder })
+        let source = StreamCapture(driver: driver, permission: { true }, window: { _ in info }, makeEncoder: { _, receive in encoder.receive = receive; return encoder })
         try source.start(windowID: 42, configuration: request) { event in
             if case .state(.closed) = event { closed.fulfill() }
             if case .ended = event { ended = true }
@@ -261,7 +296,7 @@ final class StreamCaptureTests: XCTestCase {
         var info: StreamWindowInfo? = live
         let closed = expectation(description: "closed")
         var ended = false
-        let source = StreamCapture(driver: driver, permission: { true }, window: { _ in info }, makeEncoder: { encoder.receive = $0; return encoder })
+        let source = StreamCapture(driver: driver, permission: { true }, window: { _ in info }, makeEncoder: { _, receive in encoder.receive = receive; return encoder })
         try source.start(windowID: 42, configuration: request) { event in
             if case .state(.closed) = event { closed.fulfill() }
             if case .ended = event { ended = true }

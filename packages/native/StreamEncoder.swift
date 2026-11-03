@@ -20,9 +20,28 @@ final class StreamEncoder: StreamFrameEncoder {
     private var requestedKeyframe: UInt64 = 0
     private var deliveredKeyframe: UInt64 = 0
     private var stopped = false
+    private let codec: StreamCodec
     private let receive: (StreamFrameEvent) -> Void
 
-    init(receive: @escaping (StreamFrameEvent) -> Void) { self.receive = receive }
+    init(codec: StreamCodec = .h264, receive: @escaping (StreamFrameEvent) -> Void) {
+        self.codec = codec; self.receive = receive
+    }
+    private static func specification(_ codec: StreamCodec) -> CFDictionary {
+        var properties: [CFString: Any] = [kVTVideoEncoderSpecification_EnableLowLatencyRateControl: true]
+        if codec == .hevc { properties[kVTVideoEncoderSpecification_RequireHardwareAcceleratedVideoEncoder] = true }
+        return properties as CFDictionary
+    }
+    /// A real creation probe, cached for this process. No capture or permission request.
+    static let supportsHEVC: Bool = {
+        var session: VTCompressionSession?
+        // Probe dimensions are our choice; capability is still checked for the actual frame size on encode.
+        let status = VTCompressionSessionCreate(allocator: nil, width: 800, height: 400,
+            codecType: kCMVideoCodecType_HEVC, encoderSpecification: specification(.hevc),
+            imageBufferAttributes: [kCVPixelBufferPixelFormatTypeKey: kCVPixelFormatType_32BGRA] as CFDictionary,
+            compressedDataAllocator: nil, outputCallback: nil, refcon: nil, compressionSessionOut: &session)
+        defer { if let session { VTCompressionSessionInvalidate(session) } }
+        return status == noErr && session != nil
+    }()
 
     func requestKeyframe() { queue.async { self.requestedKeyframe += 1 } }
     func stop() {
@@ -67,8 +86,8 @@ final class StreamEncoder: StreamFrameEncoder {
     }
     private func create(width: Int, height: Int) throws {
         let result = VTCompressionSessionCreate(allocator: nil, width: Int32(width), height: Int32(height),
-            codecType: kCMVideoCodecType_H264,
-            encoderSpecification: [kVTVideoEncoderSpecification_EnableLowLatencyRateControl: true] as CFDictionary,
+            codecType: codec == .hevc ? kCMVideoCodecType_HEVC : kCMVideoCodecType_H264,
+            encoderSpecification: Self.specification(codec),
             imageBufferAttributes: [kCVPixelBufferPixelFormatTypeKey: kCVPixelFormatType_32BGRA] as CFDictionary,
             compressedDataAllocator: nil, outputCallback: nil, refcon: nil, compressionSessionOut: &session)
         guard result == noErr, let session else { throw StreamEncodingError(status: result) }
@@ -85,31 +104,52 @@ final class StreamEncoder: StreamFrameEncoder {
         size = (width, height)
     }
     static func packet(_ sample: CMSampleBuffer) throws -> StreamEncodedSample {
+        guard let description = CMSampleBufferGetFormatDescription(sample) else {
+            throw StreamEncodingError(status: kCMFormatDescriptionError_InvalidParameter)
+        }
+        let codec: StreamCodec
+        switch CMFormatDescriptionGetMediaSubType(description) {
+        case kCMVideoCodecType_HEVC: codec = .hevc
+        case kCMVideoCodecType_H264: codec = .h264
+        default: throw StreamEncodingError(status: kCMFormatDescriptionError_InvalidParameter)
+        }
         let attachments = CMSampleBufferGetSampleAttachmentsArray(sample, createIfNecessary: false) as? [[String: Any]]
         let keyframe = attachments?.first?[kCMSampleAttachmentKey_NotSync as String] as? Bool != true
         var format: StreamVideoFormat?
         if keyframe {
-            guard let description = CMSampleBufferGetFormatDescription(sample) else { throw StreamEncodingError(status: kCMFormatDescriptionError_InvalidParameter) }
             var sets: [Data] = []
             var count = 0
             var length: Int32 = 0
             var pointer: UnsafePointer<UInt8>?, bytes = 0
-            var status = CMVideoFormatDescriptionGetH264ParameterSetAtIndex(description, parameterSetIndex: 0,
-                parameterSetPointerOut: &pointer, parameterSetSizeOut: &bytes, parameterSetCountOut: &count, nalUnitHeaderLengthOut: &length)
+            let hevc = codec == .hevc
+            func parameterSet(_ index: Int, count: UnsafeMutablePointer<Int>?, length: UnsafeMutablePointer<Int32>?) -> OSStatus {
+                if hevc {
+                    return CMVideoFormatDescriptionGetHEVCParameterSetAtIndex(description, parameterSetIndex: index,
+                        parameterSetPointerOut: &pointer, parameterSetSizeOut: &bytes, parameterSetCountOut: count, nalUnitHeaderLengthOut: length)
+                }
+                return CMVideoFormatDescriptionGetH264ParameterSetAtIndex(description, parameterSetIndex: index,
+                    parameterSetPointerOut: &pointer, parameterSetSizeOut: &bytes, parameterSetCountOut: count, nalUnitHeaderLengthOut: length)
+            }
+            var status = parameterSet(0, count: &count, length: &length)
             guard status == noErr, length == 4 else { throw StreamEncodingError(status: status) }
             for index in 0..<count {
-                status = CMVideoFormatDescriptionGetH264ParameterSetAtIndex(description, parameterSetIndex: index,
-                    parameterSetPointerOut: &pointer, parameterSetSizeOut: &bytes, parameterSetCountOut: nil, nalUnitHeaderLengthOut: nil)
+                status = parameterSet(index, count: nil, length: nil)
                 guard status == noErr, let pointer else { throw StreamEncodingError(status: status) }
                 sets.append(Data(bytes: pointer, count: bytes))
             }
-            format = .init(sps: sets.filter { $0.first.map { $0 & 0x1f == 7 } ?? false },
-                           pps: sets.filter { $0.first.map { $0 & 0x1f == 8 } ?? false })
+            if hevc {
+                func setsOfType(_ type: UInt8) -> [Data] { sets.filter { $0.first.map { ($0 >> 1) & 0x3f == type } ?? false } }
+                format = .init(vps: setsOfType(32), sps: setsOfType(33), pps: setsOfType(34))
+            } else {
+                format = .init(sps: sets.filter { $0.first.map { $0 & 0x1f == 7 } ?? false },
+                               pps: sets.filter { $0.first.map { $0 & 0x1f == 8 } ?? false })
+            }
         }
         guard let block = CMSampleBufferGetDataBuffer(sample) else { throw StreamEncodingError(status: kCMBlockBufferBadPointerParameterErr) }
         var data = Data(count: CMBlockBufferGetDataLength(block))
         let status = data.withUnsafeMutableBytes { CMBlockBufferCopyDataBytes(block, atOffset: 0, dataLength: $0.count, destination: $0.baseAddress!) }
         guard status == noErr else { throw StreamEncodingError(status: status) }
-        return .init(pts: CMTimeGetSeconds(CMSampleBufferGetPresentationTimeStamp(sample)), keyframe: keyframe, format: format, data: data)
+        return .init(pts: CMTimeGetSeconds(CMSampleBufferGetPresentationTimeStamp(sample)), keyframe: keyframe, format: format, data: data,
+                     codec: codec)
     }
 }

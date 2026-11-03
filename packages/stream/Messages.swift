@@ -26,9 +26,18 @@ public struct StreamAgent: Codable, Equatable {
     public var app_name: String?
     public var busy: Bool
     public var state: StreamTargetState
-    public init(agent: String, name: String, color_slot: Int, app_name: String?, busy: Bool, state: StreamTargetState) {
+    public var watchers: [String]
+    public init(agent: String, name: String, color_slot: Int, app_name: String?, busy: Bool, state: StreamTargetState, watchers: [String] = []) {
         self.agent = agent; self.name = name; self.color_slot = color_slot
-        self.app_name = app_name; self.busy = busy; self.state = state
+        self.app_name = app_name; self.busy = busy; self.state = state; self.watchers = watchers
+    }
+    private enum CodingKeys: String, CodingKey { case agent, name, color_slot, app_name, busy, state, watchers }
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(agent: try c.decode(String.self, forKey: .agent), name: try c.decode(String.self, forKey: .name),
+                  color_slot: try c.decode(Int.self, forKey: .color_slot), app_name: try c.decodeIfPresent(String.self, forKey: .app_name),
+                  busy: try c.decode(Bool.self, forKey: .busy), state: try c.decode(StreamTargetState.self, forKey: .state),
+                  watchers: try c.decodeIfPresent([String].self, forKey: .watchers) ?? [])
     }
 }
 public struct StreamAgentsMessage: Codable, Equatable {

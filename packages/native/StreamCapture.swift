@@ -101,7 +101,7 @@ final class SystemStreamCaptureDriver: NSObject, StreamCaptureDriver, SCStreamOu
 }
 
 struct SystemStreamFrameSourceFactory: StreamFrameSourceFactory {
-    func supports(_ codec: StreamCodec) -> Bool { codec == .h264 }
+    func supports(_ codec: StreamCodec) -> Bool { codec == .h264 || StreamEncoder.supportsHEVC }
     func makeSource() -> StreamFrameSource { StreamCapture() }
 }
 
@@ -112,9 +112,9 @@ final class StreamCapture: StreamFrameSource, LiveFrameSource {
     private let driver: StreamCaptureDriver
     private let permission: () -> Bool
     private let window: (UInt32) -> StreamWindowInfo?
-    private let makeEncoder: (@escaping (StreamFrameEvent) -> Void) -> StreamFrameEncoder
+    private let makeEncoder: (StreamCodec, @escaping (StreamFrameEvent) -> Void) -> StreamFrameEncoder
     private let now: () -> TimeInterval
-    private var encoder: StreamFrameEncoder?
+    private var encoders: [StreamCodec: StreamFrameEncoder] = [:]
     private var receive: ((StreamFrameEvent) -> Void)?
     private var configuration: StreamFrameConfiguration!
     private var windowID: UInt32 = 0
@@ -127,22 +127,21 @@ final class StreamCapture: StreamFrameSource, LiveFrameSource {
     // Encoded callbacks use this independent gate; they never wait for capture's queue.
     private let gate = NSLock()
     private var forwarding = false
-    private var encoderGeneration: UUID?
+    private var encoderGenerations: [StreamCodec: UUID] = [:]
 
     init(driver: StreamCaptureDriver = SystemStreamCaptureDriver(), permission: @escaping () -> Bool = { CGPreflightScreenCaptureAccess() },
          window: @escaping (UInt32) -> StreamWindowInfo? = { SystemStreamWindowProvider.lookup(id: $0) },
-         makeEncoder: @escaping (@escaping (StreamFrameEvent) -> Void) -> StreamFrameEncoder = { StreamEncoder(receive: $0) },
+         makeEncoder: @escaping (StreamCodec, @escaping (StreamFrameEvent) -> Void) -> StreamFrameEncoder = { StreamEncoder(codec: $0, receive: $1) },
          now: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }) {
         self.driver = driver; self.permission = permission; self.window = window; self.makeEncoder = makeEncoder; self.now = now
     }
     func start(windowID: UInt32, configuration: StreamFrameConfiguration, receive: @escaping (StreamFrameEvent) -> Void) throws {
         guard permission() else { throw StreamSourceError.noPermission }
-        guard configuration.codec == .h264 else { throw StreamSourceError.codecUnsupported }
         queue.async { [self] in
             guard !self.stopped else { return }
             self.windowID = windowID; self.configuration = configuration; self.receive = receive
             if let info = self.window(windowID) { self.size = CGSize(width: info.frame.width, height: info.frame.height) }
-            self.setEncoding(configuration.encode)
+            self.setEncoding(configuration.encoders)
             self.driver.start(windowID: windowID, configuration: configuration, queue: self.queue,
                 output: { [weak self] status, image, pts, metadata in self?.sample(status, image: image, pts: pts, metadata: metadata) },
                 stopped: { [weak self] error in self?.stoppedWithError(error) }, ready: { [weak self] result in
@@ -170,38 +169,50 @@ final class StreamCapture: StreamFrameSource, LiveFrameSource {
                 let old = StreamCaptureSize.output(size, maxLongEdge: self.configuration.maxLongEdge)
                 if old != .output(size, maxLongEdge: configuration.maxLongEdge) { self.previousOutput = old }
             }
-            self.configuration = configuration; self.setEncoding(configuration.encode); self.update()
+            self.configuration = configuration; self.setEncoding(configuration.encoders); self.update()
         }
     }
-    private func setEncoding(_ enabled: Bool) {
-        if !enabled {
-            gate.withLock { encoderGeneration = nil }
-            encoder?.stop(); encoder = nil; return
+    private func setEncoding(_ configurations: [StreamCodec: StreamEncodingConfiguration]) {
+        for codec in Array(encoders.keys) where configurations[codec] == nil {
+            gate.withLock { encoderGenerations[codec] = nil }
+            encoders.removeValue(forKey: codec)?.stop()
         }
-        guard encoder == nil else { return }
-        let generation = UUID()
-        gate.withLock { encoderGeneration = generation }
-        let receive = self.receive
-        encoder = makeEncoder { [weak self] event in
-            guard let self else { return }
-            let (current, allowed) = self.gate.withLock { (self.encoderGeneration == generation, self.forwarding) }
-            guard current else { return }
-            if case .ended(let reason) = event {
-                self.queue.async { if self.encoderGeneration == generation { self.finish(reason) } }; return
+        for codec in configurations.keys where encoders[codec] == nil {
+            let generation = UUID()
+            gate.withLock { encoderGenerations[codec] = generation }
+            let receive = self.receive
+            encoders[codec] = makeEncoder(codec) { [weak self] event in
+                guard let self else { return }
+                let (current, allowed) = self.gate.withLock { (self.encoderGenerations[codec] == generation, self.forwarding) }
+                guard current else { return }
+                if case .ended(let reason) = event {
+                    self.queue.async {
+                        if self.gate.withLock({ self.encoderGenerations[codec] == generation }) { self.finish(reason) }
+                    }
+                    return
+                }
+                guard allowed else { return }
+                receive?(event)
             }
-            guard allowed else { return }
-            receive?(event)
+            encoders[codec]?.requestKeyframe()
         }
-        encoder?.requestKeyframe()
     }
-    func requestKeyframe() { queue.async { self.encoder?.requestKeyframe() } }
+    private func encode(_ image: CVPixelBuffer, pts: CMTime) {
+        do {
+            for (codec, encoder) in encoders {
+                let edge = configuration.encoders[codec]?.maxLongEdge
+                try encoder.encode(StreamFrameImages.encoderInput(image, maxLongEdge: edge), pts: pts)
+            }
+        } catch { finish(.error) }
+    }
+    func requestKeyframe() { queue.async { for encoder in self.encoders.values { encoder.requestKeyframe() } } }
     func stop() { queue.async { self.teardown() } }
     private func teardown() {
         guard !stopped else { return }
-        stopped = true; gate.lock(); forwarding = false; encoderGeneration = nil; gate.unlock()
+        stopped = true; gate.lock(); forwarding = false; encoderGenerations.removeAll(); gate.unlock()
         liveFrames.stop()
         timer?.cancel(); timer = nil; receive = nil
-        driver.stop(); encoder?.stop(); encoder = nil
+        driver.stop(); for encoder in encoders.values { encoder.stop() }; encoders.removeAll()
     }
     private func finish(_ reason: StreamEndReason) {
         guard !stopped else { return }
@@ -249,10 +260,7 @@ final class StreamCapture: StreamFrameSource, LiveFrameSource {
             // frame is never an agent's screenshot (D6 rule 3), but the stream and PiP go on.
             if currentSize == size && (wrongSize || metadata.contentRect != CGRect(x: 0, y: 0, width: output.width, height: output.height)) {
                 liveFrames.invalidate()
-                if let image, status == .complete, let encoder {
-                    do { try encoder.encode(StreamFrameImages.encoderInput(image, maxLongEdge: configuration.encoderMaxLongEdge), pts: pts) }
-                    catch { finish(.error) }
-                }
+                if let image, status == .complete { encode(image, pts: pts) }
                 return
             }
             if currentSize == size, status == .complete { previousOutput = nil }
@@ -264,10 +272,7 @@ final class StreamCapture: StreamFrameSource, LiveFrameSource {
             liveFrames.receive(status: status, image: image, metadata: metadata)
         } else { liveFrames.invalidate() }
         guard status == .complete, let image else { return }
-        if let encoder {
-            do { try encoder.encode(StreamFrameImages.encoderInput(image, maxLongEdge: configuration.encoderMaxLongEdge), pts: pts) }
-            catch { finish(.error) }
-        }
+        encode(image, pts: pts)
     }
     /// ScreenCaptureKit also stops a stream with an error when its window is destroyed;
     /// that error can arrive before the poll sees the window gone. It is a close, not a failure.

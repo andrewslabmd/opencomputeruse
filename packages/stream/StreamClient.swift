@@ -38,7 +38,7 @@ public final class StreamClient {
     private var retry: DispatchWorkItem?
     private var desired: [String: StreamSubscription] = [:]
 
-    public init(runtime: URL, client: String = "Open Computer Use", callbackQueue: DispatchQueue,
+    public init(runtime: URL, client: String = StreamWatchers.appClient, callbackQueue: DispatchQueue,
                 receive: @escaping (StreamClientEvent) -> Void) {
         self.runtime = runtime; name = client; self.receive = receive
         delivery = DispatchQueue(label: "OpenComputerUse.stream-events", target: callbackQueue)

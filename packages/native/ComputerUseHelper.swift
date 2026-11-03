@@ -238,7 +238,8 @@ private final class ComputerUseHelper {
     func run() throws {
         try self.prepareDirectories()
         captureMode = CaptureModeStore(runtime: arguments.commandDirectory.deletingLastPathComponent())
-        let streamServer = StreamServer(commandDirectory: arguments.commandDirectory, factory: SystemStreamFrameSourceFactory(), captureMode: captureMode)
+        let streamServer = StreamServer(commandDirectory: arguments.commandDirectory, factory: SystemStreamFrameSourceFactory(), captureMode: captureMode,
+                                        ownerPID: arguments.parentPID)
         self.streamServer = streamServer
         let streamLifecycle = StreamServerLifecycle(start: { try streamServer.start() }, stop: { streamServer.stop() })
         streamLifecycle.start()

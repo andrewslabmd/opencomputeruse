@@ -46,18 +46,10 @@ struct MenuPanel: View {
                     }
                 } else {
                     ForEach(model.agents) { agent in
-                        LabeledContent {
-                            HStack {
-                                if agent.app != nil { Button("Watch") { model.watch(agent) } }
-                                Button("Disconnect") { model.disconnect(agent) }
-                            }
-                        } label: {
-                            Label {
-                                Text(agent.name)
-                                Text(agent.activity)
-                            } icon: {
-                                AgentIcon(agent: agent, size: 24)
-                            }
+                        MenuAgentRow(name: agent.name, activity: agent.activity, watchers: agent.watchers,
+                                     hasApp: agent.app != nil, watch: { model.watch(agent) },
+                                     disconnect: { model.disconnect(agent) }) {
+                            AgentIcon(agent: agent, size: 24)
                         }
                     }
                 }

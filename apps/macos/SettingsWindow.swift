@@ -73,10 +73,7 @@ private struct AgentLine: View {
     var body: some View {
         HStack(spacing: 8) {
             AgentIcon(agent: agent, size: 24)
-            VStack(alignment: .leading, spacing: 1) {
-                Text(agent.name)
-                Text(agent.activity).font(.caption).foregroundStyle(.secondary)
-            }
+            AgentRowText(name: agent.name, activity: agent.activity, watchers: agent.watchers)
         }
     }
 }

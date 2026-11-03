@@ -23,7 +23,7 @@ final class LiveStreamServerTests: XCTestCase {
         streamEventually(timeout: 1) { fixture.factory.sources.count == 1 }
         let first = try XCTUnwrap(fixture.factory.sources.first)
         XCTAssertEqual(first.windowID, 42)
-        XCTAssertEqual(first.configs.first, .init(maxFPS: 15, maxLongEdge: nil, codec: .h264, encode: false))
+        XCTAssertEqual(first.configs.first, .init(maxFPS: 15, maxLongEdge: nil, encoders: [:]))
         try fixture.server.setCaptureMode(.screenshots)
         streamEventually(timeout: 1) { first.stopCount == 1 }
         XCTAssertEqual(fixture.factory.sources.count, 1)
@@ -46,19 +46,19 @@ final class LiveStreamServerTests: XCTestCase {
         let source = try XCTUnwrap(fixture.factory.sources.first)
         let peer = try fixture.peer(); try peer.authenticate(); try peer.subscribe(fps: 5)
         XCTAssertEqual(fixture.factory.sources.count, 1)
-        XCTAssertEqual(source.configs.last?.maxFPS, 15); XCTAssertEqual(source.configs.last?.encode, true)
+        XCTAssertEqual(source.configs.last?.maxFPS, 15); XCTAssertEqual(source.configs.last?.encoders.isEmpty, false)
         let second = try fixture.peer(); try second.authenticate(); try second.subscribe(fps: 30)
         XCTAssertEqual(fixture.factory.sources.count, 1)
         XCTAssertEqual(source.configs.last?.maxFPS, 30)
         try fixture.server.setCaptureMode(.screenshots)
-        XCTAssertEqual(source.stopCount, 0); XCTAssertEqual(source.configs.last?.encode, true)
+        XCTAssertEqual(source.stopCount, 0); XCTAssertEqual(source.configs.last?.encoders.isEmpty, false)
         try second.send(.unsubscribe(.init(agent: "a")))
         XCTAssertEqual(try second.next(), .control(.end(.init(agent: "a", reason: .unsubscribed))))
         streamEventually { source.configs.last?.maxFPS == 5 }
         try fixture.server.setCaptureMode(.live)
         try peer.send(.unsubscribe(.init(agent: "a")))
         XCTAssertEqual(try peer.next(), .control(.end(.init(agent: "a", reason: .unsubscribed))))
-        streamEventually { source.configs.last?.encode == false }
+        streamEventually { source.configs.last?.encoders.isEmpty == true }
         XCTAssertEqual(source.stopCount, 0); XCTAssertEqual(source.configs.last?.maxFPS, 15)
         try fixture.server.setCaptureMode(.screenshots)
         streamEventually(timeout: 1) { source.stopCount == 1 }
@@ -70,10 +70,32 @@ final class LiveStreamServerTests: XCTestCase {
         guard case .control(.target) = try peer.next(), case .control(.cursor) = try peer.next() else { return XCTFail("Expected target and cursor") }
         XCTAssertEqual(fixture.factory.sources.count, 1)
         XCTAssertNil(source.configs.last?.maxLongEdge)
-        XCTAssertEqual(source.configs.last?.encoderMaxLongEdge, 400)
+        XCTAssertEqual(source.configs.last?.encoders[.h264]?.maxLongEdge, 400)
         try fixture.server.setCaptureMode(.screenshots)
         XCTAssertEqual(source.configs.last?.maxLongEdge, 400)
-        XCTAssertNil(source.configs.last?.encoderMaxLongEdge)
+        XCTAssertEqual(source.configs.last?.encoders[.h264]?.maxLongEdge, 400)
+        XCTAssertEqual(source.stopCount, 0)
+    }
+    func testHEVCViewerSharesExistingLiveCaptureAndBufferWithH264Viewer() throws {
+        let fixture = try StreamTestFixture(); fixture.factory.hevcSupported = true
+        try start(fixture)
+        let source = try XCTUnwrap(fixture.factory.sources.first)
+        let hevc = try fixture.peer(), h264 = try fixture.peer()
+        try hevc.authenticate(client: "botfactory")
+        try hevc.send(.subscribe(.init(agent: "a", max_long_edge: 400, codec: .hevc)))
+        guard case .control(.target) = try hevc.next(), case .control(.cursor) = try hevc.next() else { return XCTFail("Expected HEVC target and cursor") }
+        try h264.authenticate(); try h264.subscribe()
+        XCTAssertEqual(fixture.factory.sources.count, 1)
+        XCTAssertEqual(source.configs.last?.encoders.count, 2)
+        XCTAssertNil(source.configs.last?.maxLongEdge)
+        var image: CVPixelBuffer?
+        XCTAssertEqual(CVPixelBufferCreate(nil, 800, 400, kCVPixelFormatType_32BGRA, nil, &image), kCVReturnSuccess)
+        let arrival = CaptureClock.now()
+        source.liveFrames.receive(status: .complete, image: image, metadata: .init(displayTime: CaptureClock.now(),
+            contentRect: .init(x: 0, y: 0, width: 800, height: 400), contentScale: 1, scaleFactor: 2))
+        XCTAssertTrue(try fixture.server.liveFrame(windowIDs: [42], pid: 123, after: arrival, size: .init(width: 800, height: 400))?.image === image)
+        hevc.close(); h264.close()
+        streamEventually { source.configs.last?.encoders.isEmpty == true }
         XCTAssertEqual(source.stopCount, 0)
     }
     func testUserStoppedBlocksAllCaptureModesAndMultiWindowUntilNewTargetOrViewer() throws {
