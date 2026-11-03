@@ -168,11 +168,16 @@ final class AgentCursorView: NSView {
         labelBackground.bounds = CGRect(x: 0, y: 0, width: ceil(textWidth) + 14 + (typing ? 18 : 0), height: 18)
         label.frame = CGRect(x: typing ? 22 : 7, y: 2, width: ceil(textWidth), height: 14)
         keyboard.frame = CGRect(x: 6, y: 3, width: 13, height: 12)
-        labelBackground.position = CGPoint(x: 14 + labelBackground.bounds.width / 2, y: 24)
+        let point = CGPoint(x: cursor.x - windowOrigin.x, y: cursor.y - windowOrigin.y)
+        // The tag sits right of and below the tip; near the right or bottom edge it moves to
+        // the left or above, so it isn't cut off (the panel preview's edges in particular).
+        let tagWidth = labelBackground.bounds.width
+        let fitsRight = point.x + 14 + tagWidth <= bounds.width
+        let fitsBelow = point.y + 24 + 9 <= bounds.height
+        labelBackground.position = CGPoint(x: fitsRight ? 14 + tagWidth / 2 : -(4 + tagWidth / 2), y: fitsBelow ? 24 : -14)
         CATransaction.commit()
         setActivity(busy: cursor.busy == true)
 
-        let point = CGPoint(x: cursor.x - windowOrigin.x, y: cursor.y - windowOrigin.y)
         // Window moves keep the cursor in place without animation; a new action glides there.
         CATransaction.begin()
         CATransaction.setDisableActions(first || !moved)
