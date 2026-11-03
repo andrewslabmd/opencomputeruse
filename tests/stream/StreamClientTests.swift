@@ -246,4 +246,63 @@ final class StreamClientTests: XCTestCase {
         wait(for: [barrier], timeout: 4)
     }
 
+    func testPanelOpenCloseAndAgentJoinLeaveUseOneSharedClient() throws {
+        let runtime = try runtime()
+        let first = expectation(description: "first row subscribes")
+        let joined = expectation(description: "joining row subscribes")
+        let left = expectation(description: "leaving row unsubscribes")
+        let closed = expectation(description: "panel close unsubscribes")
+        let reopened = expectation(description: "reopened panel subscribes")
+        let finalClose = expectation(description: "final close unsubscribes")
+        var subscriptions: [String: Int] = [:], unsubscriptions: [String: Int] = [:]
+        var hellos = 0
+        let server = try ClientTestServer(runtime: runtime) { message, peer in
+            switch message {
+            case .control(.hello(let hello)):
+                hellos += 1
+                XCTAssertEqual(hellos, 1, "All rows share one connection")
+                XCTAssertEqual(hello.client, "Open Computer Use")
+                peer.send(.control(.hello(.init())))
+            case .control(.subscribe(let request)):
+                XCTAssertEqual(request.max_fps, 15); XCTAssertEqual(request.codec, .h264)
+                subscriptions[request.agent, default: 0] += 1
+                if request.agent == "a" { XCTAssertEqual(subscriptions["a"], 1); first.fulfill() }
+                else if subscriptions["b"] == 1 { joined.fulfill() }
+                else { XCTAssertEqual(subscriptions["b"], 2); reopened.fulfill() }
+            case .control(.unsubscribe(let request)):
+                unsubscriptions[request.agent, default: 0] += 1
+                if request.agent == "a" { left.fulfill() }
+                else if unsubscriptions["b"] == 1 { closed.fulfill() }
+                else { finalClose.fulfill() }
+            default: break
+            }
+        }
+        defer { server.stop() }
+        let client = StreamClient(runtime: runtime, callbackQueue: .main) { _ in }
+        defer { client.stop() }
+        let panel = PanelSubscriptions(subscribe: client.subscribe, unsubscribe: client.unsubscribe)
+        client.start()
+        panel.update(isOpen: false, agents: ["a"])
+        XCTAssertTrue(panel.active.isEmpty)
+        panel.update(isOpen: true, agents: ["a"])
+        wait(for: [first], timeout: 4)
+        panel.update(isOpen: true, agents: ["a"])
+        panel.update(isOpen: true, agents: ["a", "b"])
+        wait(for: [joined], timeout: 4)
+        panel.update(isOpen: true, agents: ["b"])
+        wait(for: [left], timeout: 4)
+        panel.update(isOpen: false, agents: ["b"])
+        wait(for: [closed], timeout: 4)
+        panel.update(isOpen: false, agents: ["b", "c"])
+        XCTAssertTrue(panel.active.isEmpty)
+        panel.update(isOpen: true, agents: ["b"])
+        wait(for: [reopened], timeout: 4)
+        panel.update(isOpen: false, agents: [])
+        wait(for: [finalClose], timeout: 4)
+        server.queue.sync {
+            XCTAssertEqual(subscriptions, ["a": 1, "b": 2])
+            XCTAssertEqual(unsubscriptions, ["a": 1, "b": 2])
+        }
+    }
+
 }

@@ -166,7 +166,6 @@ private struct AgentsPane: View {
                         LabeledContent {
                             HStack(spacing: 12) {
                                 if let usage = agent.usage { Text(usage).foregroundStyle(.secondary) }
-                                if agent.app != nil { Button("Watch") { model.watch(agent) } }
                                 Button("Disconnect") { model.disconnect(agent) }
                             }
                         } label: { AgentLine(agent: agent) }

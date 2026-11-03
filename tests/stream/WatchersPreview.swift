@@ -11,10 +11,10 @@ struct WatchersPreview {
         let row = Form {
             Section {
                 MenuAgentRow(name: "Claude Code", activity: "Thinking in Finder",
-                             watchers: ["Open Computer Use", "botfactory"], hasApp: true,
-                             watch: {}, disconnect: {}) {
+                             watchers: ["Open Computer Use", "botfactory"],
+                             disconnect: {}) {
                     Circle().fill(.blue).frame(width: 24 * 0.45, height: 24 * 0.45).frame(width: 24, height: 24)
-                }
+                } preview: { EmptyView() }
             } header: { Text("Agents") }
         }
         .formStyle(.grouped)

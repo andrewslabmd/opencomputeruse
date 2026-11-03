@@ -27,24 +27,32 @@ final class PiPStateTests: XCTestCase {
         XCTAssertEqual(PiPState(target: .live, end: .disconnected, stopped: true), .disconnected)
         XCTAssertNil(PiPState.disconnected.text)
     }
-    func testResizeRangeHeightCapAndAspectFit() {
-        let size = CGSize(width: 1440, height: 900)
-        XCTAssertEqual(PiPGeometry.size(windowSize: size), CGSize(width: 360, height: 225))
-        XCTAssertEqual(PiPGeometry.size(width: 100, windowSize: size), CGSize(width: 240, height: 150))
-        XCTAssertEqual(PiPGeometry.size(width: 900, windowSize: size), CGSize(width: 720, height: 300))
-        XCTAssertEqual(PiPGeometry.size(windowSize: CGSize(width: 300, height: 900)), CGSize(width: 360, height: 300))
-        XCTAssertEqual(PiPGeometry.size(windowSize: .zero), CGSize(width: 360, height: 300))
-        for width: CGFloat in [240, 360, 480, 720] {
-            let view = PiPGeometry.size(width: width, windowSize: size)
-            let center = PiPGeometry.viewPoint(window: CGPoint(x: 720, y: 450), windowSize: size, viewSize: view)
-            XCTAssertEqual(center, CGPoint(x: view.width / 2, y: view.height / 2))
+    func testInlineHeightCapAndAspectFitCursorAtSixtyPercent() {
+        let window = CGSize(width: 1440, height: 900)
+        XCTAssertEqual(InlinePreviewGeometry.size(width: 274, windowSize: window), CGSize(width: 274, height: 171.25))
+        XCTAssertEqual(InlinePreviewGeometry.size(width: 400, windowSize: window), CGSize(width: 400, height: 220))
+        XCTAssertEqual(InlinePreviewGeometry.size(width: 274, windowSize: CGSize(width: 300, height: 900)), CGSize(width: 274, height: 220))
+        XCTAssertEqual(InlinePreviewGeometry.size(width: 274, windowSize: .zero), CGSize(width: 274, height: 220))
+        XCTAssertEqual(InlinePreviewGeometry.size(width: 0, windowSize: window), .zero)
+        XCTAssertEqual(InlinePreviewGeometry.cursorScale, 0.6)
+        for size in [CGSize(width: 274, height: 171.25), CGSize(width: 400, height: 220)] {
+            let point = InlinePreviewGeometry.cursorPoint(window: CGPoint(x: 720, y: 450), windowSize: window, viewSize: size)!
+            XCTAssertEqual(point.x * 0.6, size.width / 2, accuracy: 0.001)
+            XCTAssertEqual(point.y * 0.6, size.height / 2, accuracy: 0.001)
+            let canvas = InlinePreviewGeometry.cursorCanvas(viewSize: size)
+            XCTAssertEqual(canvas.width * 0.6, size.width, accuracy: 0.001)
+            XCTAssertEqual(canvas.height * 0.6, size.height, accuracy: 0.001)
         }
-        // Horizontal bars, vertical bars, and no backing-pixel multiplication.
-        XCTAssertEqual(PiPGeometry.viewPoint(window: .zero, windowSize: CGSize(width: 800, height: 400),
-                                            viewSize: CGSize(width: 400, height: 400)), CGPoint(x: 0, y: 100))
-        XCTAssertEqual(PiPGeometry.viewPoint(window: CGPoint(x: 200, y: 100), windowSize: CGSize(width: 800, height: 400),
-                                            viewSize: CGSize(width: 800, height: 200)), CGPoint(x: 300, y: 50))
-        XCTAssertNil(PiPGeometry.viewPoint(window: .zero, windowSize: .zero, viewSize: size))
-        XCTAssertNil(PiPGeometry.viewPoint(window: .zero, windowSize: size, viewSize: .zero))
+        // A tall target is centered horizontally; the same transform applies
+        // to the drag's endpoint and to a typing cursor. Retina is not multiplied.
+        let tall = CGSize(width: 300, height: 900), view = CGSize(width: 274, height: 220)
+        let origin = InlinePreviewGeometry.cursorPoint(window: .zero, windowSize: tall, viewSize: view)!
+        XCTAssertEqual(origin.x * 0.6, (274 - 300 * 220.0 / 900) / 2, accuracy: 0.001)
+        XCTAssertEqual(origin.y, 0)
+        let end = InlinePreviewGeometry.cursorPoint(window: CGPoint(x: 300, y: 900), windowSize: tall, viewSize: view)!
+        XCTAssertEqual(end.x * 0.6, 274 - origin.x * 0.6, accuracy: 0.001)
+        XCTAssertEqual(end.y * 0.6, 220, accuracy: 0.001)
+        XCTAssertNil(InlinePreviewGeometry.cursorPoint(window: .zero, windowSize: .zero, viewSize: view))
+        XCTAssertNil(InlinePreviewGeometry.cursorPoint(window: .zero, windowSize: tall, viewSize: .zero))
     }
 }

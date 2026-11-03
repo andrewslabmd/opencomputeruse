@@ -21,11 +21,8 @@ struct MenuPanel: View {
                             .help("Stop every agent now")
                     }
                 } label: {
-                    Label {
-                        Text("Open Computer Use")
-                        Text(model.statusText)
-                    } icon: {
-                        Image(nsImage: NSApp.applicationIconImage).resizable().frame(width: 32, height: 32)
+                    TwoLineLabel(title: "Open Computer Use", subtitle: model.statusText) {
+                        Image(nsImage: NSApp.applicationIconImage).resizable()
                     }
                 }
             }
@@ -47,9 +44,12 @@ struct MenuPanel: View {
                 } else {
                     ForEach(model.agents) { agent in
                         MenuAgentRow(name: agent.name, activity: agent.activity, watchers: agent.watchers,
-                                     hasApp: agent.app != nil, watch: { model.watch(agent) },
                                      disconnect: { model.disconnect(agent) }) {
-                            AgentIcon(agent: agent, size: 24)
+                            AgentIcon(agent: agent, size: nil)
+                        } preview: {
+                            if agent.app != nil {
+                                AgentPreviewRow(preview: model.panelPreviews.preview(for: agent))
+                            }
                         }
                     }
                 }
@@ -67,8 +67,9 @@ struct MenuPanel: View {
             }
         }
         .formStyle(.grouped)
-        .scrollDisabled(true)
         .frame(width: 340)
         .fixedSize(horizontal: false, vertical: true)
+        .background(PanelVisibility { model.panelPreviews.setPanelOpen($0) })
+        .onDisappear { model.panelPreviews.setPanelOpen(false) }
     }
 }

@@ -46,20 +46,3 @@ public enum PiPState: Equatable, CaseIterable {
     public var keepsLastFrame: Bool { self == .live || self == .minimized || self == .hidden }
     public var dimsLastFrame: Bool { self == .minimized || self == .hidden }
 }
-
-public enum PiPGeometry {
-    public static let defaultWidth: CGFloat = 360
-    public static let widthRange: ClosedRange<CGFloat> = 240...720
-    public static let maximumHeight: CGFloat = 300
-
-    /// The panel keeps the window's shape until the height cap; its content then
-    /// aspect-fits, using exactly the same transform for the video and cursor.
-    public static func size(width: CGFloat = defaultWidth, windowSize: CGSize) -> CGSize {
-        let width = min(max(width, widthRange.lowerBound), widthRange.upperBound)
-        guard windowSize.width > 0, windowSize.height > 0 else { return CGSize(width: width, height: maximumHeight) }
-        return CGSize(width: width, height: min(maximumHeight, width * windowSize.height / windowSize.width))
-    }
-    public static func viewPoint(window: CGPoint, windowSize: CGSize, viewSize: CGSize) -> CGPoint? {
-        StreamPoints.viewPoint(window: window, windowSize: windowSize, viewSize: viewSize)
-    }
-}

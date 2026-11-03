@@ -44,21 +44,26 @@ struct Agent: Identifiable, Equatable {
 /// color; just the color dot when the app has no icon.
 struct AgentIcon: View {
     let agent: Agent
-    var size: CGFloat = 20
+    var size: CGFloat? = 20
 
     var body: some View {
-        if let icon = agent.appPID.flatMap({ NSRunningApplication(processIdentifier: $0)?.icon }) {
-            Image(nsImage: icon).resizable().frame(width: size, height: size)
-                .overlay(alignment: .bottomTrailing) {
-                    Circle().fill(agent.color)
-                        .overlay(Circle().stroke(Color(nsColor: .windowBackgroundColor), lineWidth: 1.5))
-                        .frame(width: size * 0.45, height: size * 0.45)
-                        .offset(x: size * 0.1, y: size * 0.1)
-                }
-                .accessibilityLabel(agent.app ?? "")
-        } else {
-            Circle().fill(agent.color).frame(width: size * 0.45, height: size * 0.45).frame(width: size, height: size)
+        GeometryReader { geometry in
+            let side = min(geometry.size.width, geometry.size.height)
+            if let icon = agent.appPID.flatMap({ NSRunningApplication(processIdentifier: $0)?.icon }) {
+                Image(nsImage: icon).resizable().frame(width: side, height: side)
+                    .overlay(alignment: .bottomTrailing) {
+                        Circle().fill(agent.color)
+                            .overlay(Circle().stroke(Color(nsColor: .windowBackgroundColor), lineWidth: 1.5))
+                            .frame(width: side * 0.45, height: side * 0.45)
+                            .offset(x: size == nil ? 0 : side * 0.1, y: size == nil ? 0 : side * 0.1)
+                    }
+                    .accessibilityLabel(agent.app ?? "")
+            } else {
+                Circle().fill(agent.color).frame(width: side * 0.45, height: side * 0.45)
+                    .frame(width: side, height: side)
+            }
         }
+        .frame(width: size, height: size)
     }
 }
 
@@ -98,7 +103,7 @@ final class HostModel: ObservableObject {
         didSet { UserDefaults.standard.set(captureMode.rawValue, forKey: "captureMode"); sendCaptureMode() }
     }
     lazy var overlay = CursorOverlay(runtime: runtime)
-    lazy var pipController = PiPController(runtime: runtime) { [weak self] list in
+    lazy var panelPreviews = PanelPreviewController(runtime: runtime) { [weak self] list in
         self?.updateWatchers(list)
     }
     private var streamAgents: [StreamAgent] = []
@@ -158,7 +163,7 @@ final class HostModel: ObservableObject {
         }
     }
 
-    private init() { _ = Updater.shared; start() }
+    init(startServices: Bool = true) { if startServices { _ = Updater.shared; start() } }
     func start() {
         do {
             try FileManager.default.createDirectory(at: runtime, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
@@ -176,7 +181,7 @@ final class HostModel: ObservableObject {
             hostStarts = []; try launchHost()
             timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in Task { @MainActor in self?.refresh() } }
             overlay.enabled = showCursors; overlay.start()
-            pipController.start()
+            panelPreviews.start()
             refreshSetup()
         } catch { health = .unavailable; detail = error.localizedDescription; helper?.terminate() }
     }
@@ -208,8 +213,8 @@ final class HostModel: ObservableObject {
     func refresh() {
         ticks += 1
         if ticks % 5 == 0 { refreshSetup() }
-        guard helper?.isRunning == true else { health = .unavailable; pipController.setStopped(true); return }
-        guard host?.isRunning == true else { pipController.setStopped(true); overlay.clear(); setWorking([]); hostPID = nil; restartHost(); return }
+        guard helper?.isRunning == true else { health = .unavailable; panelPreviews.setStopped(true); return }
+        guard host?.isRunning == true else { panelPreviews.setStopped(true); overlay.clear(); setWorking([]); hostPID = nil; restartHost(); return }
         guard let data = try? Data(contentsOf: runtime.appendingPathComponent("status.json")), let state = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return }
         paused = state["paused"] as? Bool ?? false
         health = paused ? .stopped : .ready
@@ -237,8 +242,7 @@ final class HostModel: ObservableObject {
                          watchers: streamAgents.first { $0.agent == id }?.watchers ?? [])
         }
         if next != agents { agents = next }
-        let connected = Set((state["clients"] as? [[String: Any]] ?? []).compactMap { $0["id"] as? String })
-        pipController.updateHost(connectedIDs: connected, stopped: paused, noPermission: screenRecording == false)
+        panelPreviews.updateHost(agents: agents, stopped: paused, noPermission: screenRecording == false)
     }
     /// Permissions, open at login and the command-line tool: things that change rarely.
     func refreshSetup() {
@@ -299,8 +303,7 @@ final class HostModel: ObservableObject {
     }
 
     // MARK: Actions
-    func stop() { pipController.setStopped(true); command(["stop"]) }
-    func watch(_ agent: Agent) { pipController.watch(agent) }
+    func stop() { panelPreviews.setStopped(true); command(["stop"]) }
     func resume() { command(["resume"]) }
     func disconnect(_ agent: Agent) { command(["revoke", agent.id]) }
     func command(_ args: [String]) {
@@ -385,7 +388,7 @@ final class HostModel: ObservableObject {
     }
     func revealRuntime() { NSWorkspace.shared.activateFileViewerSelecting([runtime]) }
     func repair() {
-        timer?.invalidate(); overlay.clear(); pipController.setStopped(true); host?.terminate(); helper?.terminate()
+        timer?.invalidate(); overlay.clear(); panelPreviews.setStopped(true); host?.terminate(); helper?.terminate()
         let children = [host, helper].compactMap { $0 }
         Task {
             await Task.detached {
@@ -398,7 +401,7 @@ final class HostModel: ObservableObject {
         }
     }
     func quit() {
-        pipController.closeAll()
+        panelPreviews.setPanelOpen(false)
         timer?.invalidate(); overlay.clear(); host?.terminate(); helper?.terminate()
         let children = [host, helper].compactMap { $0 }
         Task {
@@ -423,6 +426,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 }
 
+#if !PANEL_PREVIEW
 @main
 struct ComputerUseApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
@@ -445,6 +449,8 @@ struct ComputerUseApp: App {
     }
 }
 
+#endif
+
 /// The menu-bar icon. It is on screen from launch, so it also hands SwiftUI's
 /// window opener to AppKit code (the reopen handler, the panel's buttons).
 struct MenuBarLabel: View {
@@ -452,7 +458,6 @@ struct MenuBarLabel: View {
     @Environment(\.openWindow) private var openWindow
     var body: some View {
         Image(nsImage: image)
-            .background(PiPStatusItemAnchor { HostModel.shared.pipController.statusItemFrame = $0 })
             .onAppear { SettingsWindow.shared.open = { openWindow(id: SettingsWindow.id) } }
     }
 }
