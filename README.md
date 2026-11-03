@@ -274,6 +274,7 @@ ocu permissions           # current permission state
 ocu apps
 ocu observe 'Application Name' --screenshot
 ocu batch 'Application Name' '[{"kind":"click","at":{"x":100,"y":100}}]'
+ocu stream --agent NAME --out clip.h264 # save 5 seconds of an agent window
 ocu stop
 ocu resume
 ```

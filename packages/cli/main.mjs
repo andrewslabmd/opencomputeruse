@@ -5,7 +5,10 @@ import { saveImages } from './images.mjs';
 const [command = 'help', ...args] = process.argv.slice(2);
 if (command === 'mcp') { await import('../mcp/main.mjs'); }
 else if (command === 'help' || command === '--help') {
-  console.log('ocu status | permissions | apps | observe APP [--screenshot[=FILE]] | batch APP JSON | stop | resume | revoke CLIENT_ID | setup [claude | codex | cursor | opencode] [--remove] [--print] | --version\nBatch observes APP and acts within one exclusive connection. mcp serves a persistent agent connection.\n--screenshot attaches the app window image, saved to FILE (default: a private temporary file) and printed as its path.\nsetup connects coding agents to Open Computer Use; with no agent it shows each one\'s status.');
+  console.log('ocu status | permissions | apps | observe APP [--screenshot[=FILE]] | batch APP JSON | stream --agent NAME_OR_ID --out FILE [--seconds N] [--fps N] | stop | resume | revoke CLIENT_ID | setup [claude | codex | cursor | opencode] [--remove] [--print] | --version\nBatch observes APP and acts within one exclusive connection. mcp serves a persistent agent connection.\n--screenshot attaches the app window image, saved to FILE (default: a private temporary file) and printed as its path.\nstream saves H.264 Annex B from an agent window (defaults: 5 seconds, 15 fps).\nsetup connects coding agents to Open Computer Use; with no agent it shows each one\'s status.');
+} else if (command === 'stream') {
+  const { runStream } = await import('./stream.mjs');
+  process.exitCode = await runStream(args);
 } else if (command === '--version') console.log('0.1.0-dev');
 else if (command === 'setup') {
   const { runSetup } = await import('./setup.mjs');
