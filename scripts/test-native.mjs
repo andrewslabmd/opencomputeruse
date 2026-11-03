@@ -1,16 +1,25 @@
-import { spawn, spawnSync } from 'node:child_process';
-import { mkdir, writeFile } from 'node:fs/promises';
-import { resolve } from 'node:path';
+import { spawnSync } from 'node:child_process';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { resolve, join } from 'node:path';
 import assert from 'node:assert/strict';
 import { parse } from 'yaml';
+import { fixturePlist, launchNativeFixture } from './test-native-modes.mjs';
 import { Client } from '../packages/cli/client.mjs';
 import { assertFixtureFocus, waitForFixtureState } from './live-support/fixture-focus.mjs';
 if (!process.argv.includes('--interactive')) throw new Error('Native UI test requires explicit --interactive authorization');
-await mkdir('work', { recursive: true });
-const build = spawnSync('xcrun', ['swiftc', '-parse-as-library', 'tests/native-fixtures/ComputerUseFixture.swift', '-o', 'work/ComputerUseFixture'], { stdio: 'inherit' });
+// This legacy fixture explicitly activates itself and the previous app. Refuse
+// before launch under the isolated, strictly background-only Phase 2 run.
+if (process.env.OCU_RUNTIME_DIR && /NSApp\.activate\(|previousApplication\?\.activate\(/.test(await readFile('tests/native-fixtures/ComputerUseFixture.swift', 'utf8'))) {
+  console.error('Blocked: ComputerUseFixture.swift explicitly activates itself and the previous app; fixture changes are outside this brief. No app launched.');
+  process.exit(78);
+}
+const app = resolve(`work/native-basic-${Date.now()}/ComputerUseFixture.app`);
+await mkdir(join(app, 'Contents/MacOS'), { recursive: true });
+await writeFile(join(app, 'Contents/Info.plist'), fixturePlist('ComputerUseFixture'));
+const build = spawnSync('xcrun', ['swiftc', '-parse-as-library', 'tests/native-fixtures/ComputerUseFixture.swift', '-o', join(app, 'Contents/MacOS/ComputerUseFixture')], { stdio: 'inherit' });
 if (build.status) process.exit(build.status);
 const resultPath = resolve(`work/native-${Date.now()}.json`);
-const fixture = spawn(resolve('work/ComputerUseFixture'), [resultPath], { stdio: 'ignore' });
+const fixture = await launchNativeFixture(app, [resultPath], resultPath);
 const client = new Client();
 try {
   await client.connect('Native acceptance fixture');

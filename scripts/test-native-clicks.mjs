@@ -3,6 +3,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { resolve, join } from 'node:path';
 import { parse } from 'yaml';
+import { openNativeFixture } from './test-native-modes.mjs';
 import { Client } from '../packages/cli/client.mjs';
 
 // Opt-in live acceptance: repeated and modified pointer clicks, perform_action
@@ -15,7 +16,7 @@ await mkdir(join(app, 'Contents/MacOS'), { recursive: true });
 execFileSync('xcrun', ['swiftc', 'tests/native-fixtures/ClickFixture.swift', '-o', join(app, 'Contents/MacOS/ClickFixture')]);
 await writeFile(join(app, 'Contents/Info.plist'), `<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd"><plist version="1.0"><dict><key>CFBundleName</key><string>ClickFixture</string><key>CFBundleExecutable</key><string>ClickFixture</string><key>CFBundleIdentifier</key><string>com.andrewslabmd.opencomputeruse.clickfixture</string><key>CFBundlePackageType</key><string>APPL</string><key>LSUIElement</key><true/></dict></plist>`);
 // LaunchServices in the background: the fixture never takes the front.
-execFileSync('open', ['-g', '-n', app, '--args', statePath]);
+openNativeFixture(app, [statePath]);
 const client = new Client();
 const records = [], cases = [];
 const sleep = ms => new Promise(r => setTimeout(r, ms));

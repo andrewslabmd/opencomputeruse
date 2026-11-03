@@ -1,16 +1,19 @@
 import assert from 'node:assert/strict';
-import { spawn, execFileSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { resolve, join } from 'node:path';
 import { parse } from 'yaml';
+import { fixturePlist, launchNativeFixture } from './test-native-modes.mjs';
 import { Client } from '../packages/cli/client.mjs';
 
 if (!process.argv.includes('--interactive')) throw new Error('Native interaction acceptance requires --interactive authorization');
 const dir = resolve(`work/native-interaction-${Date.now()}`);
 await mkdir(dir, { recursive:true });
-const binary=join(dir,'InteractionFixture'), statePath=join(dir,'state.json');
+const app=join(dir,'InteractionFixture.app'), binary=join(app,'Contents/MacOS/InteractionFixture'), statePath=join(dir,'state.json');
+await mkdir(join(app,'Contents/MacOS'),{recursive:true});
+await writeFile(join(app,'Contents/Info.plist'),fixturePlist('InteractionFixture'));
 execFileSync('xcrun',['swiftc','tests/native-fixtures/InteractionFixture.swift','-o',binary]);
-const fixture=spawn(binary,[statePath],{stdio:'ignore'});
+const fixture=await launchNativeFixture(app,[statePath],statePath);
 const client=new Client();
 const records=[];
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
@@ -40,7 +43,11 @@ try{
     assert.ok(Date.now()<accessibilityReadyBy,'Web accessibility did not become ready');
     await sleep(40);r=await call('use_observe',{app_target:`PID:${fixture.pid}`});
   }
-  assert.equal(nodes(r).find(n=>n.name==='Destination 1'&&n.role==='AXLink').url,'https://example.com/item/1');
+  const webArea=nodes(r).find(n=>n.role==='AXWebArea'&&flat(n).some(x=>x.name==='Destination 1'&&x.role==='AXLink'));
+  assert.ok(webArea?.url,'The web area must retain its full URL');
+  const firstLink=flat(webArea).find(n=>n.name==='Destination 1'&&n.role==='AXLink');
+  assert.equal(firstLink.url,'/item/1');
+  assert.equal(new URL(firstLink.url,webArea.url).href,'https://example.com/item/1');
   for(const direction of ['down','right','up','left']){
     const before=await state();
     const owner=nodes(r).find(n=>n.role==='AXScrollArea'&&n.children?.some(x=>x.role==='AXWebArea'));

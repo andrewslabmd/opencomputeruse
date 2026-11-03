@@ -1,27 +1,31 @@
 import assert from 'node:assert/strict';
-import { spawn, execFileSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { resolve, join } from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { parse } from 'yaml';
+import { fixturePlist, launchNativeFixture } from './test-native-modes.mjs';
 import { Client } from '../packages/cli/client.mjs';
 if (!process.argv.includes('--interactive')) throw new Error('Live native observation tests require explicit --interactive authorization');
 const base=resolve('work/native-observation-'+Date.now());
 await mkdir(base,{recursive:true});
-execFileSync('xcrun',['swiftc','-parse-as-library','tests/native-fixtures/ObservationFixture.swift','-o',join(base,'ObservationFixture')]);
+const app=join(base,'ObservationFixture.app');
+await mkdir(join(app,'Contents/MacOS'),{recursive:true});
+await writeFile(join(app,'Contents/Info.plist'),fixturePlist('ObservationFixture'));
+execFileSync('xcrun',['swiftc','-parse-as-library','tests/native-fixtures/ObservationFixture.swift','-o',join(app,'Contents/MacOS/ObservationFixture')]);
 const client=new Client(), control=new Client();
 const results=[]; let fixture;
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 const decode=r=>{assert.notEqual(r.isError,true);return parse(r.content.find(x=>x.type==='text').text)};
 const nodes=s=>s.surface.windows.flatMap(w=>{const list=[],stack=[w.tree];while(stack.length){const n=stack.pop();list.push(n);stack.push(...(n.children??[]));}return list;});
 async function start(mode){
- fixture=spawn(join(base,'ObservationFixture'),[mode,join(base,mode+'-state.json')],{stdio:'ignore'});
+ fixture=await launchNativeFixture(app,[mode,join(base,mode+'-state.json')],join(base,mode+'-state.json'));
  const by=Date.now()+10000;
  while(true){try{const j=JSON.parse(await readFile(join(base,mode+'-state.json')));if(j.pid===fixture.pid)return;}catch{}assert.ok(fixture.exitCode===null&&Date.now()<by);await sleep(50)}
 }
 async function dispose(){
  await client.request('release').catch(()=>{});
- if(fixture&&fixture.exitCode===null){fixture.kill('SIGTERM');await new Promise(r=>fixture.once('exit',r));}
+ if(fixture&&fixture.exitCode===null){fixture.kill('SIGTERM');while(fixture.exitCode===null)await sleep(50);}
  fixture=null;
 }
 const observe=async title=>decode(await client.request('tools/call',{name:'use_observe',arguments:{app_target:'PID:'+fixture.pid,window_title:title}})).snapshot;

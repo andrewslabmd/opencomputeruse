@@ -3,6 +3,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { resolve, join } from 'node:path';
 import { parse } from 'yaml';
+import { openNativeFixture } from './test-native-modes.mjs';
 import { Client } from '../packages/cli/client.mjs';
 
 // Opt-in live acceptance for concurrent agents: two clients, each with its own
@@ -24,7 +25,7 @@ const pass = label => { cases.push(label); console.log(`${label}: passed`); };
 
 function agent(name) {
   const statePath = join(dir, `${name}.json`);
-  execFileSync('open', ['-g', '-n', app, '--args', statePath]);
+  openNativeFixture(app, [statePath]);
   const client = new Client();
   const self = {
     name, client, pid: 0,

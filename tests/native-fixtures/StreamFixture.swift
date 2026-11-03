@@ -33,6 +33,16 @@ final class StreamFixture: NSObject, NSApplicationDelegate, NSMenuDelegate {
     var lastFront: pid_t = 0
     var menuOpen = false
     var screen: NSScreen!
+    let colours: [[Double]] = [[0, 0.65, 0.65], [0.8, 0.2, 0.1], [0.1, 0.3, 0.9]]
+    var pressCount = 0
+
+    @objc func changeColour() {
+        pressCount += 1
+        let rgb = colours[pressCount % colours.count]
+        content.colour = NSColor(srgbRed: rgb[0], green: rgb[1], blue: rgb[2], alpha: 1)
+        content.needsDisplay = true
+        record()
+    }
 
     func record() {
         let pid = ProcessInfo.processInfo.processIdentifier
@@ -45,6 +55,8 @@ final class StreamFixture: NSObject, NSApplicationDelegate, NSMenuDelegate {
             "screen": [screen.frame.width, screen.frame.height],
             "visible_screen": [screen.visibleFrame.width, screen.visibleFrame.height],
             "animating": content.animated, "sharing": window?.sharingType.rawValue ?? 0,
+            "press_count": pressCount,
+            "colour": content.colour.usingColorSpace(.sRGB).map { [$0.redComponent, $0.greenComponent, $0.blueComponent] } ?? [],
             "child": child?.windowNumber ?? 0, "popover": popover?.isShown ?? false,
             "sheet": sheet?.windowNumber ?? 0, "menu_open": menuOpen,
             "last_command": lastCommand, "command_error": commandError ?? NSNull() as Any,
@@ -63,6 +75,10 @@ final class StreamFixture: NSObject, NSApplicationDelegate, NSMenuDelegate {
         window.setFrame(frame, display: false); window.title = "OCU Stream Fixture"
         window.isReleasedWhenClosed = false
         window.contentView = content
+        let button = NSButton(title: "Change colour", target: self, action: #selector(changeColour))
+        button.frame = NSRect(x: 24, y: 24, width: 150, height: 32)
+        button.setAccessibilityLabel("Change colour")
+        content.addSubview(button)
         window.order(.below, relativeTo: 0)
         lastFront = NSWorkspace.shared.frontmostApplication?.processIdentifier ?? 0
         NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main) { note in

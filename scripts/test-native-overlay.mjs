@@ -3,6 +3,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { resolve, join } from 'node:path';
 import { parse } from 'yaml';
+import { openNativeFixture } from './test-native-modes.mjs';
 import { Client } from '../packages/cli/client.mjs';
 import { runtimeDirectory } from '../packages/protocol/index.mjs';
 
@@ -26,12 +27,15 @@ let out = list.map { w -> [String: Any] in ["id": w[kCGWindowNumber as String] ?
 print(String(data: try! JSONSerialization.data(withJSONObject: out), encoding: .utf8)!)
 `);
 execFileSync('xcrun', ['swiftc', join(dir, 'windows.swift'), '-o', lister]);
-execFileSync('open', ['-g', '-n', app, '--args', statePath]);
+openNativeFixture(app, [statePath]);
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const state = async () => JSON.parse(await readFile(statePath, 'utf8'));
 const windows = () => JSON.parse(execFileSync(lister, { encoding: 'utf8' }));
-const ocuPid = Number(execFileSync('pgrep', ['-f', 'Open Computer Use.app/Contents/MacOS/OpenComputerUse$'], { encoding: 'utf8' }).trim().split('\n')[0]);
+const ocuPid = process.env.OCU_RUNTIME_DIR
+  ? JSON.parse(await readFile(join(runtimeDirectory(), 'status.json'), 'utf8')).parent_pid
+  : Number(execFileSync('pgrep', ['-f', 'Open Computer Use.app/Contents/MacOS/OpenComputerUse$'], { encoding: 'utf8' }).trim().split('\n')[0]);
+assert.ok(Number.isInteger(ocuPid) && ocuPid > 0, 'Runtime must identify its owning dev app');
 const cursors = async () => JSON.parse(await readFile(join(runtimeDirectory(), 'cursors.json'), 'utf8'));
 async function until(predicate, label) {
   const readyBy = Date.now() + 10000; let last; // Harness readiness only.
@@ -53,8 +57,12 @@ try {
   // The overlay for this agent: OCU's on-screen window with the fixture window's exact bounds.
   const overlay = list => {
     const target = list.findIndex(w => w.id === fixture.window);
-    // Directly above the target, with its exact bounds (windows of equal size elsewhere do not count).
-    const panel = target > 0 && list[target - 1].pid === ocuPid && JSON.stringify(list[target - 1].bounds) === JSON.stringify(list[target].bounds) ? target - 1 : -1;
+    // Directly above the target, with its exact bounds (windows of equal size elsewhere do not
+    // count). Only the target's own windows may sit between: while the window is streamed
+    // (live view), macOS keeps its sharing mark, a child window of the target, just above it.
+    let above = target - 1;
+    while (above >= 0 && list[above].pid === fixture.pid && list[above].id !== fixture.window) above--;
+    const panel = target > 0 && above >= 0 && list[above].pid === ocuPid && JSON.stringify(list[above].bounds) === JSON.stringify(list[target].bounds) ? above : -1;
     return { target, panel, id: list[panel]?.id };
   };
   let r = await observe();
@@ -68,7 +76,7 @@ try {
     await call('use_action_batch', { actions: [build(r)] });
     const cursor = await until(async () => (await cursors()).find(c => c.name === 'Overlay acceptance' && c.pid === pid), 'cursor published');
     assert.equal(cursor.window_id, fixture.window);
-    const placed = await until(async () => { const o = overlay(windows()); return o.panel >= 0 && o.panel === o.target - 1 && o; }, 'overlay directly above the target');
+    const placed = await until(async () => { const o = overlay(windows()); return o.panel >= 0 && o; }, 'overlay directly above the target');
     await sleep(600); // let the glide and ripple finish before capturing
     execFileSync('screencapture', ['-x', '-o', '-l', String(placed.id), join(dir, `overlay-${index + 1}.png`)]);
     execFileSync('screencapture', ['-x', '-o', '-l', String(fixture.window), join(dir, `target-${index + 1}.png`)]);
