@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.2.0 — 2026-11-03
+
+[Watch your agents live](https://github.com/andrewslabmd/opencomputeruse/releases/tag/v0.2.0)
+in the menu-bar panel: each agent's row shows the app it's working in, with its
+own cursor, even behind other windows. Agents see apps through a live view by
+default (macOS shows its purple capture mark the whole time); Settings →
+Overview → How agents see apps → Screenshots only switches back. While an agent
+types, its name tag reads "Typing". Other programs can show an agent's window
+through a private local connection, named in the agent's row; `ocu stream`
+saves a short clip.
+
 ## 0.1.3 — 2026-10-29
 
 [Finder folders and aliases open reliably](https://github.com/andrewslabmd/opencomputeruse/releases/tag/v0.1.3)
