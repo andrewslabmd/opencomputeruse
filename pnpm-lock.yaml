@@ -19,8 +19,8 @@ importers:
         specifier: 1.3.10
         version: 1.3.10
       yaml:
-        specifier: 2.8.3
-        version: 2.8.3
+        specifier: 2.9.1
+        version: 2.9.1
 
 packages:
 
@@ -109,8 +109,8 @@ packages:
     resolution: {integrity: sha512-Xf0nWe6RseziFMu+Ap9biiUbmplq6S9/p+7w7YXP/JBHhrUDDUhwa+vANyubuqfZWTveU//DYVGsDG7RKL/vEw==}
     engines: {node: '>=0.10.0'}
 
-  yaml@2.8.3:
-    resolution: {integrity: sha512-AvbaCLOO2Otw/lW5bmh9d/WEdcDFdQp2Z2ZUH3pX9U2ihyUY0nvLv7J6TrWowklRGPYbB/IuIMfYgxaCPg5Bpg==}
+  yaml@2.9.1:
+    resolution: {integrity: sha512-3NxN8+78OdzbT7C/WjGsyfPAtJaN3FNDsWxv7Y7mcDsT/oOmgW8BpyQQFFBnvZE3j9Y2Sdz1ULFLezL7Eb2yFw==}
     engines: {node: '>= 14.6'}
     hasBin: true
 
@@ -184,4 +184,4 @@ snapshots:
 
   require-from-string@2.0.2: {}
 
-  yaml@2.8.3: {}
+  yaml@2.9.1: {}
