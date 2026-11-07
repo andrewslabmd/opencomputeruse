@@ -4,6 +4,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { resolve, join } from 'node:path';
 import { parse } from 'yaml';
 import { fixturePlist, launchNativeFixture } from './test-native-modes.mjs';
+import { offscreenTarget } from './live-support/offscreen-target.mjs';
 import { Client } from '../packages/cli/client.mjs';
 
 if (!process.argv.includes('--interactive')) throw new Error('Native interaction acceptance requires --interactive authorization');
@@ -58,13 +59,15 @@ try{
     assert.notEqual(after.frontmost_pid,fixture.pid);
     console.log(`WebKit native scroll ${direction}: passed`);
   }
-  const offscreen=nodes(r).find(n=>n.name==='Destination 90'&&n.role==='AXLink');
+  const offscreen=offscreenTarget(nodes(r),'Destination 90','AXLink');
   assert.equal(offscreen.offscreen,true);
   r=await call('use_action_batch',{actions:[{kind:'scroll_to_visible',element:offscreen.id}],diagnostics:true});
   assert.equal(r.actions[0].status,'completed',JSON.stringify(r.actions));
-  assert.notEqual(nodes(r).find(n=>n.name==='Destination 90'&&n.role==='AXLink').offscreen,true);
+  const revealed=nodes(r).find(n=>n.name==='Destination 90'&&n.role==='AXLink');
+  assert.ok(revealed,'Destination 90 must be exposed as a link after reveal');
+  assert.notEqual(revealed.offscreen,true);
   await until(s=>s.web.y>2000);
-  console.log('Native reveal of exact offscreen link: passed');
+  console.log('Native reveal of offscreen destination: passed');
   for(let i=0;i<2;i++){
     const open=nodes(r).find(n=>n.name==='Open save panel');
     r=await call('use_action_batch',{actions:[{kind:'click',element:open.id}],diagnostics:true});

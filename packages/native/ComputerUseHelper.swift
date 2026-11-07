@@ -857,7 +857,10 @@ private final class ComputerUseHelper {
         // Wait out the provider's own debounce once per process, cancellably,
         // so the first published tree's presses can reach the page.
         do {
-            if let remaining = try webAccessibility.prepare(processIdentity), remaining > 0 {
+            let preparation = try webAccessibility.prepareSnapshot(processIdentity,
+                checkCancellation: { try self.nativeCancellation?.check() })
+            if case .exited = preparation { return self.exitedSnapshot(request, processID: processID) }
+            if case let .ready(remaining?) = preparation, remaining > 0 {
                 let ready = Date(timeIntervalSinceNow: remaining)
                 while Date() < ready {
                     try nativeCancellation?.check()

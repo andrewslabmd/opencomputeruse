@@ -21,6 +21,11 @@ struct WebAccessibilityFailure: Error, LocalizedError {
     var errorDescription: String? { message }
 }
 
+enum WebAccessibilityPreparation {
+    case ready(TimeInterval?)
+    case exited
+}
+
 final class WebAccessibilityMode {
     static let attribute = "AXManualAccessibility"
     static let readiness: TimeInterval = 2.25 // Electron's 2s debounce plus delivery margin.
@@ -30,6 +35,23 @@ final class WebAccessibilityMode {
 
     init(access: WebAccessibilityAccess, now: @escaping () -> Date = Date.init) {
         self.access = access; self.now = now
+    }
+
+    // AX can disconnect while the process is exiting. A definite kernel exit
+    // is terminal; cancellation, identity lookup errors and PID replacement
+    // must preserve the observation failure instead of claiming an exit.
+    func prepareSnapshot(_ identity: NativeProcessIdentity,
+                         checkCancellation: () throws -> Void,
+                         readIdentity: (pid_t) throws -> NativeProcessIdentity? = NativeProcessIdentity.read) throws -> WebAccessibilityPreparation {
+        do { return .ready(try prepare(identity)) }
+        catch {
+            let preparationError = error
+            do {
+                try checkCancellation()
+                if try readIdentity(identity.pid) == nil { return .exited }
+            } catch { /* No terminal state inferred from a failed check. */ }
+            throw preparationError
+        }
     }
 
     /// Requests complete mode once per kernel process identity. Returns the
